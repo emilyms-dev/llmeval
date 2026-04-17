@@ -1,0 +1,20 @@
+suite:
+  name: "Bad Weights Suite"
+  version: "1.0.0"
+  model: "claude-sonnet-4-20250514"
+  judge_model: "claude-sonnet-4-20250514"
+
+tests:
+  - id: "bad-001"
+    description: "Weights do not sum to 1.0"
+    prompt: "Hello"
+    rubric:
+      criteria:
+        - name: "clarity"
+          description: "Response is clear"
+          weight: 0.3
+        - name: "tone"
+          description: "Response has good tone"
+          weight: 0.3
+      passing_threshold: 0.75
+    tags: []

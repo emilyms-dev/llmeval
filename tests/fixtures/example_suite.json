@@ -1,0 +1,31 @@
+{
+  "suite": {
+    "name": "Customer Support Bot - JSON Suite",
+    "version": "1.0.0",
+    "model": "gpt-4o",
+    "judge_model": "claude-sonnet-4-20250514"
+  },
+  "tests": [
+    {
+      "id": "json-tone-001",
+      "description": "Response should be polite",
+      "prompt": "My package arrived damaged.",
+      "rubric": {
+        "criteria": [
+          {
+            "name": "politeness",
+            "description": "Response uses polite language",
+            "weight": 0.6
+          },
+          {
+            "name": "resolution",
+            "description": "Response offers a resolution path",
+            "weight": 0.4
+          }
+        ],
+        "passing_threshold": 0.70
+      },
+      "tags": ["tone", "regression-critical"]
+    }
+  ]
+}
