@@ -257,6 +257,24 @@ class TestGetRun:
             assert fetched.completed_at is None
 
     @pytest.mark.asyncio
+    async def test_get_by_prefix_returns_run(self) -> None:
+        async with SQLiteStorage(":memory:") as storage:
+            run = _run(suite_name="Prefix Suite")
+            await storage.save_run(run)
+            fetched = await storage.get_run(run.run_id[:8])
+            assert fetched.run_id == run.run_id
+
+    @pytest.mark.asyncio
+    async def test_get_ambiguous_prefix_raises_storage_error(self) -> None:
+        async with SQLiteStorage(":memory:") as storage:
+            run_a = _run()
+            run_b = _run()
+            await storage.save_run(run_a)
+            await storage.save_run(run_b)
+            with pytest.raises(StorageError, match="ambiguous"):
+                await storage.get_run("")
+
+    @pytest.mark.asyncio
     async def test_get_missing_run_raises_storage_error(self) -> None:
         async with SQLiteStorage(":memory:") as storage:
             with pytest.raises(StorageError, match="not found"):

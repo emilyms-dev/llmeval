@@ -199,23 +199,27 @@ class SQLiteStorage(StorageBackend):
             ) from exc
 
     async def get_run(self, run_id: str) -> SuiteRun:
-        """Fetch a single run by UUID.
+        """Fetch a single run by UUID or unambiguous prefix.
+
+        A prefix is unambiguous when exactly one stored run ID starts with it.
 
         Args:
-            run_id: The run's UUID string.
+            run_id: Full UUID or a unique prefix (minimum 8 hex characters
+                recommended).
 
         Returns:
             Fully deserialised :class:`~llmeval.schema.results.SuiteRun`.
 
         Raises:
-            StorageError: If *run_id* is not found or deserialisation fails.
+            StorageError: If *run_id* matches zero or more than one run, or if
+                deserialisation fails.
         """
         try:
             async with self._db.execute(
-                "SELECT run_json FROM suite_runs WHERE run_id = :run_id",
-                {"run_id": run_id},
+                "SELECT run_json FROM suite_runs WHERE run_id LIKE :prefix",
+                {"prefix": run_id + "%"},
             ) as cursor:
-                row = await cursor.fetchone()
+                rows = await cursor.fetchall()
         except StorageError:
             raise
         except Exception as exc:
@@ -223,10 +227,15 @@ class SQLiteStorage(StorageBackend):
                 f"Failed to fetch run {run_id!r}: {exc}"
             ) from exc
 
-        if row is None:
+        if not rows:
             raise StorageError(f"Run {run_id!r} not found.")
+        if len(rows) > 1:
+            raise StorageError(
+                f"Prefix {run_id!r} is ambiguous ({len(rows)} matches). "
+                "Provide more characters."
+            )
 
-        return _deserialise(row["run_json"])
+        return _deserialise(rows[0]["run_json"])
 
     async def list_runs(
         self,

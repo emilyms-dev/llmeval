@@ -1,0 +1,96 @@
+name: Eval
+
+# Runs a behavioral test suite against the configured model and posts results
+# as a PR comment. Requires API key secrets to be set in repository settings.
+#
+# Opt-in: set the repository variable RUN_EVAL=true to enable on PRs.
+# Always runs when triggered manually via workflow_dispatch.
+#
+# Required secrets:
+#   ANTHROPIC_API_KEY  — for Anthropic models
+#   OPENAI_API_KEY     — for OpenAI models (optional if using Anthropic only)
+#
+# Required variables (Settings → Variables → Actions):
+#   RUN_EVAL           — set to "true" to enable automatic runs on PRs
+#   LLMEVAL_SUITE      — path to suite YAML (default: tests/fixtures/example_suite.yaml)
+#   LLMEVAL_MODEL      — model override (default: suite default)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Path to the test suite YAML file
+        required: false
+        default: tests/fixtures/example_suite.yaml
+      model:
+        description: Model override (leave blank to use suite default)
+        required: false
+        default: ""
+
+jobs:
+  eval:
+    name: Run Eval Suite
+    runs-on: ubuntu-latest
+
+    # On PRs: only run if the repo variable RUN_EVAL is set to "true".
+    # On manual dispatch: always run.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      vars.RUN_EVAL == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-3.11-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Resolve suite path
+        id: suite
+        run: |
+          # Manual dispatch uses the input; PR runs use the repo variable or default.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SUITE="${{ inputs.suite }}"
+          else
+            SUITE="${{ vars.LLMEVAL_SUITE || 'tests/fixtures/example_suite.yaml' }}"
+          fi
+          echo "path=$SUITE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve model override
+        id: model
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.model }}" ]; then
+            echo "flag=--model ${{ inputs.model }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ vars.LLMEVAL_MODEL }}" ]; then
+            echo "flag=--model ${{ vars.LLMEVAL_MODEL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run eval suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLMEVAL_DB_PATH: /tmp/llmeval-ci.db
+        run: |
+          poetry run llmeval run \
+            --suite "${{ steps.suite.outputs.path }}" \
+            ${{ steps.model.outputs.flag }}
