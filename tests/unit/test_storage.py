@@ -176,9 +176,7 @@ class TestSaveRun:
         async with SQLiteStorage(":memory:") as storage:
             run = _run()
             await storage.save_run(run)
-            updated = run.model_copy(
-                update={"results": [_result("t1", passed=True)]}
-            )
+            updated = run.model_copy(update={"results": [_result("t1", passed=True)]})
             await storage.save_run(updated)
             fetched = await storage.get_run(run.run_id)
             assert fetched.total_tests == 1
@@ -333,9 +331,7 @@ class TestListRuns:
         base = datetime(2024, 1, 1, tzinfo=UTC)
         async with SQLiteStorage(":memory:") as storage:
             for i in range(3):
-                await storage.save_run(
-                    _run(started_at=base + timedelta(hours=i))
-                )
+                await storage.save_run(_run(started_at=base + timedelta(hours=i)))
             runs = await storage.list_runs()
             times = [r.started_at for r in runs]
             assert times == sorted(times, reverse=True)

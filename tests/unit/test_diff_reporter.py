@@ -83,9 +83,7 @@ def _fail(test_id: str, score: float = 0.4) -> TestResult:
 
 
 def _error(test_id: str, msg: str = "timeout") -> TestResult:
-    return TestResult(
-        test_id=test_id, prompt="p", model="m", raw_output="", error=msg
-    )
+    return TestResult(test_id=test_id, prompt="p", model="m", raw_output="", error=msg)
 
 
 # ===========================================================================

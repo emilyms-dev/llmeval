@@ -114,9 +114,7 @@ class CliReporter:
 
     def _print_failure_detail(self, run: SuiteRun) -> None:
         """Print a section showing judge reasoning for every failing test."""
-        failing = [
-            r for r in run.results if r.error is not None or not r.passed
-        ]
+        failing = [r for r in run.results if r.error is not None or not r.passed]
         # Sort: errors last (they have no scores to reason about), then by score asc.
         failing.sort(key=lambda r: (r.error is not None, r.weighted_score))
 
@@ -179,9 +177,7 @@ class CliReporter:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _result_row(
-        self, result: TestResult
-    ) -> tuple[str, Text, str, str, str]:
+    def _result_row(self, result: TestResult) -> tuple[str, Text, str, str, str]:
         threshold_str = (
             f"{result.passing_threshold:.2f}"
             if result.passing_threshold is not None

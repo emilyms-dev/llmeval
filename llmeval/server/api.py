@@ -323,9 +323,7 @@ async def _run_pipeline(
         runner = Runner(runner_adapter, concurrency=concurrency)
         suite_run = await runner.run(suite_def, tags=tags, suite_path=suite_path)
         # Preserve the run_id and metadata from the pending record.
-        suite_run = suite_run.model_copy(
-            update={"run_id": run_id, "status": "running"}
-        )
+        suite_run = suite_run.model_copy(update={"run_id": run_id, "status": "running"})
 
         judge = Judge(judge_adapter, concurrency=concurrency)
         suite_run = await judge.score_suite_run(suite_run, suite_def)

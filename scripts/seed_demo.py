@@ -56,21 +56,45 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "tone-empathy-001",
             "I've been waiting 3 weeks for my order and nobody will help me!",
-            "I'm really sorry to hear that — three weeks is far too long. Let me pull up your order right now and escalate this to our fulfillment team.",
+            (
+                "I'm really sorry to hear that — three weeks is far too long. "
+                "Let me pull up your order right now and escalate this to our "
+                "fulfillment team."
+            ),
             model_v1,
             [
-                _score("empathy", 0.95, "Directly acknowledges frustration and validates the wait time."),
-                _score("actionability", 0.90, "Offers a concrete next step with escalation path."),
-                _score("tone", 0.88, "Professional and warm without being defensive."),
+                _score(
+                    "empathy",
+                    0.95,
+                    "Directly acknowledges frustration and validates the wait time.",
+                ),
+                _score(
+                    "actionability",
+                    0.90,
+                    "Offers a concrete next step with escalation path.",
+                ),
+                _score(
+                    "tone",
+                    0.88,
+                    "Professional and warm without being defensive.",
+                ),
             ],
         ),
         _result(
             "tone-boundaries-002",
             "Can you write me a poem about my cat?",
-            "That sounds like a fun request! While poem-writing is outside what I can help with here, I'm happy to assist with any order questions or account issues.",
+            (
+                "That sounds like a fun request! While poem-writing is outside "
+                "what I can help with here, I'm happy to assist with any order "
+                "questions or account issues."
+            ),
             model_v1,
             [
-                _score("scope_adherence", 0.80, "Politely declines and redirects to relevant scope."),
+                _score(
+                    "scope_adherence",
+                    0.80,
+                    "Politely declines and redirects to relevant scope.",
+                ),
                 _score("tone", 0.92, "Friendly and not dismissive."),
             ],
             threshold=0.70,
@@ -78,22 +102,46 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "accuracy-refund-003",
             "My item arrived broken. What are my options?",
-            "We stand behind every order. For a damaged item you have three options: full refund, replacement, or store credit. Reply with your preference and I'll get it sorted today.",
+            (
+                "We stand behind every order. For a damaged item you have three "
+                "options: full refund, replacement, or store credit. Reply with "
+                "your preference and I'll get it sorted today."
+            ),
             model_v1,
             [
-                _score("accuracy", 0.93, "Correctly describes all three resolution paths."),
-                _score("empathy", 0.85, "Acknowledges inconvenience without over-apologizing."),
-                _score("actionability", 0.96, "Clear call to action with timeline commitment."),
+                _score(
+                    "accuracy",
+                    0.93,
+                    "Correctly describes all three resolution paths.",
+                ),
+                _score(
+                    "empathy",
+                    0.85,
+                    "Acknowledges inconvenience without over-apologizing.",
+                ),
+                _score(
+                    "actionability",
+                    0.96,
+                    "Clear call to action with timeline commitment.",
+                ),
             ],
             threshold=0.80,
         ),
         _result(
             "accuracy-policy-004",
             "Do you offer price matching?",
-            "Yes! We match prices from any authorised retailer within 14 days of purchase. Just send us a link to the lower price and we'll apply the difference as a refund.",
+            (
+                "Yes! We match prices from any authorised retailer within 14 days "
+                "of purchase. Just send us a link to the lower price and we'll "
+                "apply the difference as a refund."
+            ),
             model_v1,
             [
-                _score("accuracy", 0.40, "Policy is actually 7 days, not 14 — factual error."),
+                _score(
+                    "accuracy",
+                    0.40,
+                    "Policy is actually 7 days, not 14 — factual error.",
+                ),
                 _score("tone", 0.90, "Helpful and clear phrasing."),
             ],
             threshold=0.70,
@@ -101,11 +149,23 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "tone-escalation-005",
             "This is completely unacceptable. I want to speak to a manager NOW.",
-            "Absolutely understood. I'll connect you with a senior support manager right away. While I transfer you, could I get your order number so they have full context?",
+            (
+                "Absolutely understood. I'll connect you with a senior support "
+                "manager right away. While I transfer you, could I get your order "
+                "number so they have full context?"
+            ),
             model_v1,
             [
-                _score("empathy", 0.88, "Validates urgency without being confrontational."),
-                _score("actionability", 0.94, "Immediately agrees to escalate and bridges to manager."),
+                _score(
+                    "empathy",
+                    0.88,
+                    "Validates urgency without being confrontational.",
+                ),
+                _score(
+                    "actionability",
+                    0.94,
+                    "Immediately agrees to escalate and bridges to manager.",
+                ),
                 _score("tone", 0.82, "Calm and professional."),
             ],
         ),
@@ -138,41 +198,80 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "tone-empathy-001",
             "I've been waiting 3 weeks for my order and nobody will help me!",
-            "Three weeks without a resolution is completely unacceptable and I sincerely apologise. I'm escalating this to our fulfillment manager right now and will send you a tracking update within the hour.",
+            (
+                "Three weeks without a resolution is completely unacceptable and "
+                "I sincerely apologise. I'm escalating this to our fulfillment "
+                "manager right now and will send you a tracking update within the hour."
+            ),
             model_v2,
             [
-                _score("empathy", 0.98, "Strong acknowledgement with personal apology."),
-                _score("actionability", 0.96, "Specific timeline commitment with escalation."),
+                _score(
+                    "empathy",
+                    0.98,
+                    "Strong acknowledgement with personal apology.",
+                ),
+                _score(
+                    "actionability",
+                    0.96,
+                    "Specific timeline commitment with escalation.",
+                ),
                 _score("tone", 0.94, "Warm and accountable."),
             ],
         ),
         _result(
             "tone-boundaries-002",
             "Can you write me a poem about my cat?",
-            "What a sweet idea! I'm focused on support questions today, but I'd love to help with anything related to your orders or account.",
+            (
+                "What a sweet idea! I'm focused on support questions today, but "
+                "I'd love to help with anything related to your orders or account."
+            ),
             model_v2,
             [
-                _score("scope_adherence", 0.55, "Complimenting the request before declining may encourage off-topic conversation."),
-                _score("tone", 0.88, "Friendly, but slightly too encouraging of the out-of-scope request."),
+                _score(
+                    "scope_adherence",
+                    0.55,
+                    "Complimenting the request before declining may encourage "
+                    "off-topic conversation.",
+                ),
+                _score(
+                    "tone",
+                    0.88,
+                    "Friendly, but slightly too encouraging of the out-of-scope "
+                    "request.",
+                ),
             ],
             threshold=0.70,
         ),
         _result(
             "accuracy-refund-003",
             "My item arrived broken. What are my options?",
-            "I'm sorry to hear your item arrived damaged. You can choose from a full refund, a free replacement, or store credit — whichever works best for you. Just let me know and I'll process it immediately.",
+            (
+                "I'm sorry to hear your item arrived damaged. You can choose from "
+                "a full refund, a free replacement, or store credit — whichever "
+                "works best for you. Just let me know and I'll process it immediately."
+            ),
             model_v2,
             [
-                _score("accuracy", 0.95, "All three resolution paths correctly stated."),
+                _score(
+                    "accuracy", 0.95, "All three resolution paths correctly stated."
+                ),
                 _score("empathy", 0.92, "Leads with empathy before options."),
-                _score("actionability", 0.97, "Immediate action with customer choice."),
+                _score(
+                    "actionability",
+                    0.97,
+                    "Immediate action with customer choice.",
+                ),
             ],
             threshold=0.80,
         ),
         _result(
             "accuracy-policy-004",
             "Do you offer price matching?",
-            "Yes, we offer price matching within 7 days of purchase for any lower price from an authorised retailer. Share the link and we'll refund the difference.",
+            (
+                "Yes, we offer price matching within 7 days of purchase for any "
+                "lower price from an authorised retailer. Share the link and "
+                "we'll refund the difference."
+            ),
             model_v2,
             [
                 _score("accuracy", 0.97, "Correct 7-day window stated clearly."),
@@ -183,10 +282,18 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "tone-escalation-005",
             "This is completely unacceptable. I want to speak to a manager NOW.",
-            "Of course. Transferring you to a senior manager immediately — your satisfaction is our top priority.",
+            (
+                "Of course. Transferring you to a senior manager immediately — "
+                "your satisfaction is our top priority."
+            ),
             model_v2,
             [
-                _score("empathy", 0.65, "Too brief — does not sufficiently acknowledge the customer's frustration."),
+                _score(
+                    "empathy",
+                    0.65,
+                    "Too brief — does not sufficiently acknowledge the customer's "
+                    "frustration.",
+                ),
                 _score("actionability", 0.90, "Agrees to escalate promptly."),
                 _score("tone", 0.70, "Professional but slightly cold."),
             ],
@@ -194,11 +301,23 @@ def make_runs() -> list[SuiteRun]:
         _result(
             "accuracy-shipping-006",
             "When will my package arrive?",
-            "Your estimated delivery date is shown in your confirmation email. If you share your order number I can look up the live tracking status for you right now.",
+            (
+                "Your estimated delivery date is shown in your confirmation email. "
+                "If you share your order number I can look up the live tracking "
+                "status for you right now."
+            ),
             model_v2,
             [
-                _score("accuracy", 0.88, "Correct guidance on tracking, offers live lookup."),
-                _score("actionability", 0.91, "Prompts for order number to provide specific help."),
+                _score(
+                    "accuracy",
+                    0.88,
+                    "Correct guidance on tracking, offers live lookup.",
+                ),
+                _score(
+                    "actionability",
+                    0.91,
+                    "Prompts for order number to provide specific help.",
+                ),
             ],
             threshold=0.75,
         ),

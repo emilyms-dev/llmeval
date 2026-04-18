@@ -175,7 +175,9 @@ class TestResultsTable:
 
     def test_pass_row_shows_test_id(self) -> None:
         console, buf = _console()
-        CliReporter(console).print_run(_make_run(results=[_passing_result("my-test-id")]))
+        CliReporter(console).print_run(
+            _make_run(results=[_passing_result("my-test-id")])
+        )
         assert "my-test-id" in buf.getvalue()
 
     def test_pass_row_shows_score(self) -> None:
@@ -252,9 +254,7 @@ class TestSummary:
 
     def test_errored_count_in_summary(self) -> None:
         console, buf = _console()
-        CliReporter(console).print_run(
-            _make_run(results=[_errored_result()])
-        )
+        CliReporter(console).print_run(_make_run(results=[_errored_result()]))
         assert "Errored: 1" in buf.getvalue()
 
     def test_pass_rate_all_pass(self) -> None:
@@ -317,7 +317,5 @@ class TestFormatCriteria:
         assert "  ·  " in formatted
 
     def test_empty_criterion_scores_returns_empty_string(self) -> None:
-        result = TestResult(
-            test_id="t", prompt="p", model="m", raw_output="r"
-        )
+        result = TestResult(test_id="t", prompt="p", model="m", raw_output="r")
         assert _format_criteria(result) == ""

@@ -137,11 +137,11 @@ class TestExtractJson:
         assert _extract_json(text) == '{"scores": []}'
 
     def test_strips_json_markdown_fence(self) -> None:
-        text = "```json\n{\"scores\": []}\n```"
+        text = '```json\n{"scores": []}\n```'
         assert _extract_json(text) == '{"scores": []}'
 
     def test_strips_plain_markdown_fence(self) -> None:
-        text = "```\n{\"scores\": []}\n```"
+        text = '```\n{"scores": []}\n```'
         assert _extract_json(text) == '{"scores": []}'
 
     def test_multiline_json(self) -> None:
@@ -241,18 +241,14 @@ class TestParseScores:
 
     def test_non_numeric_score_raises_judge_error(self) -> None:
         rubric = _rubric([_criterion("q")])
-        raw = json.dumps(
-            {"scores": [{"name": "q", "score": "high", "reasoning": "r"}]}
-        )
+        raw = json.dumps({"scores": [{"name": "q", "score": "high", "reasoning": "r"}]})
         with pytest.raises(JudgeError, match="must be a number"):
             _parse_scores(raw, rubric)
 
     def test_boolean_score_raises_judge_error(self) -> None:
         """bool is a subclass of int in Python — must be explicitly rejected."""
         rubric = _rubric([_criterion("q")])
-        raw = json.dumps(
-            {"scores": [{"name": "q", "score": True, "reasoning": "r"}]}
-        )
+        raw = json.dumps({"scores": [{"name": "q", "score": True, "reasoning": "r"}]})
         with pytest.raises(JudgeError, match="must be a number"):
             _parse_scores(raw, rubric)
 
@@ -400,9 +396,7 @@ class TestJudgeScoreHappyPath:
     @pytest.mark.asyncio
     async def test_weighted_score_computed(self) -> None:
         rubric = _rubric([_criterion("a", 0.4), _criterion("b", 0.6)])
-        adapter = _make_adapter(
-            _judge_json(("a", 1.0, "r"), ("b", 0.5, "r"))
-        )
+        adapter = _make_adapter(_judge_json(("a", 1.0, "r"), ("b", 0.5, "r")))
         judge = Judge(adapter)
         scored = await judge.score(_result(), rubric)
         # 0.4*1.0 + 0.6*0.5 = 0.7
@@ -504,9 +498,7 @@ class TestJudgeScoreErrors:
         from llmeval.exceptions import ModelAdapterError
 
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(
-            side_effect=ModelAdapterError("API down")
-        )
+        adapter.complete = AsyncMock(side_effect=ModelAdapterError("API down"))
         judge = Judge(adapter)
         scored = await judge.score(_result(), _rubric())
         assert scored.error is not None

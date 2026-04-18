@@ -32,9 +32,7 @@ def _make_run(passed: int = 2, failed: int = 0, errored: int = 0) -> SuiteRun:
                 prompt="p",
                 model="claude-sonnet-4-20250514",
                 raw_output="r",
-                criterion_scores=[
-                    CriterionScore(name="q", score=0.9, reasoning="ok")
-                ],
+                criterion_scores=[CriterionScore(name="q", score=0.9, reasoning="ok")],
                 weighted_score=0.9,
                 passed=True,
             )

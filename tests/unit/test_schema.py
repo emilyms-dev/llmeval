@@ -430,11 +430,13 @@ class TestSuiteRun:
             )
 
         run = self._make_run()
-        run.results.extend([
-            _r("t1", passed=True),
-            _r("t2", passed=False),
-            _r("t3", passed=False, error="timeout"),
-        ])
+        run.results.extend(
+            [
+                _r("t1", passed=True),
+                _r("t2", passed=False),
+                _r("t3", passed=False, error="timeout"),
+            ]
+        )
         assert run.total_tests == 3
         assert run.passed_tests == 1
         assert run.failed_tests == 1

@@ -53,6 +53,7 @@ def test_package_version_is_set() -> None:
 # Exception hierarchy tests
 # ---------------------------------------------------------------------------
 
+
 def test_all_exceptions_inherit_from_base() -> None:
     """Every custom exception must be a subclass of LLMEvalError."""
     from llmeval.exceptions import (
@@ -74,9 +75,9 @@ def test_all_exceptions_inherit_from_base() -> None:
         RunnerError,
     ]
     for exc_class in subclasses:
-        assert issubclass(exc_class, LLMEvalError), (
-            f"{exc_class.__name__} must inherit from LLMEvalError"
-        )
+        assert issubclass(
+            exc_class, LLMEvalError
+        ), f"{exc_class.__name__} must inherit from LLMEvalError"
 
 
 def test_exceptions_are_raiseable() -> None:

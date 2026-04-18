@@ -260,9 +260,7 @@ class TestRunnerErrorHandling:
     @pytest.mark.asyncio
     async def test_model_adapter_error_is_captured_not_raised(self) -> None:
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(
-            side_effect=ModelAdapterError("API call failed")
-        )
+        adapter.complete = AsyncMock(side_effect=ModelAdapterError("API call failed"))
         runner = Runner(adapter)
         suite_run = await runner.run(_make_suite([_make_test("t1")]))
         # Should not raise; error is recorded
@@ -271,9 +269,7 @@ class TestRunnerErrorHandling:
     @pytest.mark.asyncio
     async def test_errored_result_has_empty_raw_output(self) -> None:
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(
-            side_effect=ModelAdapterError("boom")
-        )
+        adapter.complete = AsyncMock(side_effect=ModelAdapterError("boom"))
         runner = Runner(adapter)
         suite_run = await runner.run(_make_suite([_make_test("t1")]))
         assert suite_run.results[0].raw_output == ""
@@ -318,13 +314,9 @@ class TestRunnerErrorHandling:
     @pytest.mark.asyncio
     async def test_all_tests_fail_still_returns_suite_run(self) -> None:
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(
-            side_effect=ModelAdapterError("always fails")
-        )
+        adapter.complete = AsyncMock(side_effect=ModelAdapterError("always fails"))
         runner = Runner(adapter)
-        suite_run = await runner.run(
-            _make_suite([_make_test("t1"), _make_test("t2")])
-        )
+        suite_run = await runner.run(_make_suite([_make_test("t1"), _make_test("t2")]))
         assert suite_run.total_tests == 2
         assert suite_run.errored_tests == 2
         assert suite_run.completed_at is not None
@@ -344,9 +336,7 @@ class TestRunnerErrorHandling:
         """An unexpected exception from one test must not abort others."""
         call_count = 0
 
-        async def raises_on_first(
-            prompt: str, system_prompt: str | None = None
-        ) -> str:
+        async def raises_on_first(prompt: str, system_prompt: str | None = None) -> str:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
