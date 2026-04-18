@@ -48,9 +48,7 @@ class Runner:
         concurrency: int = _DEFAULT_CONCURRENCY,
     ) -> None:
         if concurrency < 1:
-            raise RunnerError(
-                f"concurrency must be >= 1, got {concurrency!r}"
-            )
+            raise RunnerError(f"concurrency must be >= 1, got {concurrency!r}")
         self._adapter = adapter
         self._concurrency = concurrency
 
@@ -59,6 +57,7 @@ class Runner:
         suite: TestSuite,
         *,
         tags: list[str] | None = None,
+        suite_path: str | None = None,
     ) -> SuiteRun:
         """Run all (or a tag-filtered subset of) test cases in *suite*.
 
@@ -97,6 +96,10 @@ class Runner:
             suite_version=suite.suite.version,
             model=self._adapter.model_id,
             judge_model=suite.suite.judge_model,
+            status="completed",
+            suite_path=suite_path,
+            tags=list(tags) if tags else [],
+            concurrency=self._concurrency,
             started_at=started_at,
             completed_at=completed_at,
             results=results,

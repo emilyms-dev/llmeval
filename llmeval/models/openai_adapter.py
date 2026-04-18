@@ -5,6 +5,7 @@ Wraps the ``openai`` async client so the runner can call OpenAI chat models
 interface as every other provider.
 
 API key resolution order:
+
 1. ``api_key`` constructor argument (useful in tests / programmatic use).
 2. ``OPENAI_API_KEY`` environment variable (loaded from ``.env`` via
    ``python-dotenv``).

@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+
+RunStatus = Literal["pending", "running", "completed", "failed"]
 
 
 class CriterionScore(BaseModel):
@@ -57,6 +59,8 @@ class TestResult(BaseModel):
             computed by the judge. Range ``[0.0, 1.0]``.
         passed: ``True`` when ``weighted_score >=`` the rubric's
             ``passing_threshold``.
+        passing_threshold: The rubric's passing threshold, copied from the
+            suite definition so results are self-contained.
         error: Human-readable error description if the model call or judge
             scoring failed. ``None`` on success.
     """
@@ -68,14 +72,12 @@ class TestResult(BaseModel):
     criterion_scores: list[CriterionScore] = Field(default_factory=list)
     weighted_score: float = Field(default=0.0, ge=0.0, le=1.0)
     passed: bool = False
+    passing_threshold: float | None = None
     error: str | None = None
 
 
 class SuiteRun(BaseModel):
     """Aggregated record of a complete test suite execution.
-
-    Created by the runner at the start of a run, then updated as results
-    arrive. Persisted to storage once ``completed_at`` is set.
 
     Args:
         run_id: UUID string, auto-generated on construction.
@@ -85,9 +87,23 @@ class SuiteRun(BaseModel):
         model: Model under test (may differ from suite default if overridden
             via CLI).
         judge_model: Model used for LLM-as-judge scoring.
+        status: Lifecycle state of the run.
+
+            - ``"pending"`` — saved to storage, pipeline not yet started.
+            - ``"running"`` — pipeline is actively executing.
+            - ``"completed"`` — pipeline finished (tests may still have failed).
+            - ``"failed"`` — pipeline itself encountered an unrecoverable error.
+
+        suite_path: Filesystem path to the suite YAML/JSON that was loaded.
+            ``None`` when the run was created programmatically without a file.
+        tags: Tag filter applied when the run was triggered. Empty list means
+            no filter (all tests ran).
+        concurrency: Semaphore width used for concurrent API calls.
+        error_message: Top-level error description when ``status="failed"``.
+            ``None`` for all other statuses.
         started_at: UTC timestamp set when the run begins.
-        completed_at: UTC timestamp set when all tests finish (or the run is
-            aborted). ``None`` while the run is in progress.
+        completed_at: UTC timestamp set when the pipeline finishes. ``None``
+            while the run is in progress.
         results: Ordered list of :class:`TestResult` objects, one per test
             case.
     """
@@ -97,9 +113,12 @@ class SuiteRun(BaseModel):
     suite_version: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     judge_model: str = Field(..., min_length=1)
-    started_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    status: RunStatus = "completed"
+    suite_path: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    concurrency: int = Field(default=5, ge=1)
+    error_message: str | None = None
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     results: list[TestResult] = Field(default_factory=list)
 
@@ -107,9 +126,7 @@ class SuiteRun(BaseModel):
     def completed_after_started(self) -> Self:
         """Ensure ``completed_at`` is not earlier than ``started_at``."""
         if self.completed_at is not None and self.completed_at < self.started_at:
-            raise ValueError(
-                "completed_at must not be earlier than started_at"
-            )
+            raise ValueError("completed_at must not be earlier than started_at")
         return self
 
     # ------------------------------------------------------------------
@@ -132,9 +149,7 @@ class SuiteRun(BaseModel):
     @property
     def failed_tests(self) -> int:
         """Number of tests that completed scoring but did not pass."""
-        return sum(
-            1 for r in self.results if not r.passed and r.error is None
-        )
+        return sum(1 for r in self.results if not r.passed and r.error is None)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

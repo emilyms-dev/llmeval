@@ -68,9 +68,7 @@ class Rubric(BaseModel):
         seen: set[str] = set()
         for criterion in self.criteria:
             if criterion.name in seen:
-                raise ValueError(
-                    f"Duplicate criterion name: {criterion.name!r}"
-                )
+                raise ValueError(f"Duplicate criterion name: {criterion.name!r}")
             seen.add(criterion.name)
 
         total = sum(c.weight for c in self.criteria)

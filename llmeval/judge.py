@@ -40,7 +40,9 @@ _SYSTEM_PROMPT: Final[str] = (
 )
 
 # Criteria block is injected at call time via _build_prompt().
-_USER_PROMPT_TEMPLATE: Final[str] = """\
+_USER_PROMPT_TEMPLATE: Final[
+    str
+] = """\
 ## Original Prompt
 {prompt}
 
@@ -130,12 +132,11 @@ class Judge:
                     "criterion_scores": criterion_scores,
                     "weighted_score": round(weighted, 6),
                     "passed": passed,
+                    "passing_threshold": rubric.passing_threshold,
                 }
             )
         except JudgeError as exc:
-            logger.warning(
-                "Judge scoring failed for test %r: %s", result.test_id, exc
-            )
+            logger.warning("Judge scoring failed for test %r: %s", result.test_id, exc)
             return result.model_copy(update={"error": str(exc)})
         except Exception as exc:
             wrapped = JudgeError(
@@ -243,9 +244,7 @@ def _extract_json(text: str) -> str:
     cleaned = re.sub(r"```(?:json)?\s*", "", text).strip()
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
-        raise JudgeError(
-            f"No JSON object found in judge response: {text[:300]!r}"
-        )
+        raise JudgeError(f"No JSON object found in judge response: {text[:300]!r}")
     return match.group()
 
 
@@ -282,12 +281,8 @@ def _parse_scores(raw: str, rubric: Rubric) -> list[CriterionScore]:
         ) from exc
 
     if not isinstance(data, dict) or "scores" not in data:
-        got = (
-            list(data.keys()) if isinstance(data, dict) else type(data).__name__
-        )
-        raise JudgeError(
-            f"Judge JSON missing top-level 'scores' key. Got: {got!r}"
-        )
+        got = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+        raise JudgeError(f"Judge JSON missing top-level 'scores' key. Got: {got!r}")
 
     raw_scores = data["scores"]
     if not isinstance(raw_scores, list):
@@ -301,18 +296,14 @@ def _parse_scores(raw: str, rubric: Rubric) -> list[CriterionScore]:
 
     for item in raw_scores:
         if not isinstance(item, dict):
-            raise JudgeError(
-                f"Each score entry must be a JSON object, got {item!r}"
-            )
+            raise JudgeError(f"Each score entry must be a JSON object, got {item!r}")
 
         name = item.get("name")
         score_val = item.get("score")
         reasoning = item.get("reasoning")
 
         if not isinstance(name, str) or not name:
-            raise JudgeError(
-                f"Score entry missing valid 'name' field: {item!r}"
-            )
+            raise JudgeError(f"Score entry missing valid 'name' field: {item!r}")
         if not isinstance(score_val, int | float) or isinstance(score_val, bool):
             raise JudgeError(
                 f"Criterion {name!r} 'score' must be a number, "
@@ -328,9 +319,7 @@ def _parse_scores(raw: str, rubric: Rubric) -> list[CriterionScore]:
                 f"Expected one of: {sorted(criterion_names)}"
             )
         if name in seen:
-            raise JudgeError(
-                f"Judge returned duplicate score for criterion {name!r}"
-            )
+            raise JudgeError(f"Judge returned duplicate score for criterion {name!r}")
         seen.add(name)
 
         clamped = max(0.0, min(1.0, float(score_val)))
@@ -345,8 +334,7 @@ def _parse_scores(raw: str, rubric: Rubric) -> list[CriterionScore]:
     missing = criterion_names - seen
     if missing:
         raise JudgeError(
-            f"Judge did not score all criteria. "
-            f"Missing: {sorted(missing)}"
+            f"Judge did not score all criteria. " f"Missing: {sorted(missing)}"
         )
 
     return scores

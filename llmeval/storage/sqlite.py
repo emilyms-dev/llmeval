@@ -7,7 +7,7 @@ and avoids connection-per-operation overhead in production.
 
 Table layout
 ------------
-One table — ``suite_runs`` — stores both indexed metadata columns (for fast
+One table — ``suite_runs`` — stores indexed metadata columns (for fast
 queries and sorting without deserialisation) and a full JSON blob so the
 complete :class:`~llmeval.schema.results.SuiteRun` round-trips without loss::
 
@@ -17,6 +17,7 @@ complete :class:`~llmeval.schema.results.SuiteRun` round-trips without loss::
     ├── suite_version TEXT
     ├── model         TEXT
     ├── judge_model   TEXT
+    ├── status        TEXT  (indexed)
     ├── started_at    TEXT  ISO-8601 UTC, indexed for sorted listing
     ├── completed_at  TEXT  nullable
     ├── total_tests   INTEGER
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
     suite_version TEXT NOT NULL,
     model         TEXT NOT NULL,
     judge_model   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'completed',
     started_at    TEXT NOT NULL,
     completed_at  TEXT,
     total_tests   INTEGER NOT NULL DEFAULT 0,
@@ -62,6 +64,17 @@ CREATE INDEX IF NOT EXISTS idx_suite_runs_suite_name
 _CREATE_IDX_STARTED_AT = """
 CREATE INDEX IF NOT EXISTS idx_suite_runs_started_at
     ON suite_runs (started_at);
+"""
+
+_CREATE_IDX_STATUS = """
+CREATE INDEX IF NOT EXISTS idx_suite_runs_status
+    ON suite_runs (status);
+"""
+
+# Adds the status column to databases created before this column existed.
+# DEFAULT 'completed' gives existing rows a sensible value.
+_MIGRATE_ADD_STATUS = """
+ALTER TABLE suite_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'completed';
 """
 
 
@@ -90,10 +103,11 @@ class SQLiteStorage(StorageBackend):
     # ------------------------------------------------------------------
 
     async def initialize(self) -> None:
-        """Open the database connection and create schema if absent.
+        """Open the database connection and create/migrate schema.
 
         Idempotent — calling more than once has no effect if a connection is
-        already open.
+        already open. Automatically adds any new columns introduced in later
+        versions so existing databases are upgraded in place.
 
         Raises:
             StorageError: If the database file cannot be opened or the schema
@@ -107,6 +121,8 @@ class SQLiteStorage(StorageBackend):
             await self._conn.execute(_CREATE_TABLE)
             await self._conn.execute(_CREATE_IDX_SUITE_NAME)
             await self._conn.execute(_CREATE_IDX_STARTED_AT)
+            await self._conn.execute(_CREATE_IDX_STATUS)
+            await _migrate(self._conn)
             await self._conn.commit()
         except Exception as exc:
             raise StorageError(
@@ -165,12 +181,12 @@ class SQLiteStorage(StorageBackend):
                 """
                 INSERT OR REPLACE INTO suite_runs (
                     run_id, suite_name, suite_version, model, judge_model,
-                    started_at, completed_at,
+                    status, started_at, completed_at,
                     total_tests, passed_tests, failed_tests, errored_tests,
                     run_json
                 ) VALUES (
                     :run_id, :suite_name, :suite_version, :model, :judge_model,
-                    :started_at, :completed_at,
+                    :status, :started_at, :completed_at,
                     :total_tests, :passed_tests, :failed_tests, :errored_tests,
                     :run_json
                 )
@@ -181,6 +197,7 @@ class SQLiteStorage(StorageBackend):
                     "suite_version": suite_run.suite_version,
                     "model": suite_run.model,
                     "judge_model": suite_run.judge_model,
+                    "status": suite_run.status,
                     "started_at": started_at,
                     "completed_at": completed_at,
                     "total_tests": suite_run.total_tests,
@@ -223,9 +240,7 @@ class SQLiteStorage(StorageBackend):
         except StorageError:
             raise
         except Exception as exc:
-            raise StorageError(
-                f"Failed to fetch run {run_id!r}: {exc}"
-            ) from exc
+            raise StorageError(f"Failed to fetch run {run_id!r}: {exc}") from exc
 
         if not rows:
             raise StorageError(f"Run {run_id!r} not found.")
@@ -236,6 +251,52 @@ class SQLiteStorage(StorageBackend):
             )
 
         return _deserialise(rows[0]["run_json"])
+
+    async def get_previous_run(self, suite_name: str, before_run_id: str) -> SuiteRun:
+        """Return the most recent completed run of *suite_name* before *before_run_id*.
+
+        Useful for "compare with previous" functionality.
+
+        Args:
+            suite_name: Exact suite name to match.
+            before_run_id: UUID of the reference run. The returned run will
+                have an earlier ``started_at``.
+
+        Returns:
+            The previous completed :class:`~llmeval.schema.results.SuiteRun`.
+
+        Raises:
+            StorageError: If no previous run exists or the query fails.
+        """
+        try:
+            async with self._db.execute(
+                """
+                SELECT run_json FROM suite_runs
+                WHERE suite_name = :suite_name
+                  AND run_id != :run_id
+                  AND status = 'completed'
+                  AND started_at < (
+                      SELECT started_at FROM suite_runs WHERE run_id = :run_id
+                  )
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                {"suite_name": suite_name, "run_id": before_run_id},
+            ) as cursor:
+                row = await cursor.fetchone()
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to fetch previous run for {suite_name!r}: {exc}"
+            ) from exc
+
+        if row is None:
+            raise StorageError(
+                f"No previous completed run found for suite {suite_name!r}."
+            )
+
+        return _deserialise(row["run_json"])
 
     async def list_runs(
         self,
@@ -306,9 +367,7 @@ class SQLiteStorage(StorageBackend):
         except StorageError:
             raise
         except Exception as exc:
-            raise StorageError(
-                f"Failed to delete run {run_id!r}: {exc}"
-            ) from exc
+            raise StorageError(f"Failed to delete run {run_id!r}: {exc}") from exc
 
         if deleted == 0:
             raise StorageError(f"Run {run_id!r} not found; nothing deleted.")
@@ -317,6 +376,20 @@ class SQLiteStorage(StorageBackend):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _migrate(conn: aiosqlite.Connection) -> None:
+    """Apply any schema migrations needed for databases created before the
+    current schema version.
+
+    Each migration is idempotent — it checks whether the change is needed
+    before applying it, so running against an already-current database is safe.
+    """
+    async with conn.execute("PRAGMA table_info(suite_runs)") as cursor:
+        columns = {row["name"] async for row in cursor}
+
+    if "status" not in columns:
+        await conn.execute(_MIGRATE_ADD_STATUS)
 
 
 def _deserialise(run_json: str) -> SuiteRun:

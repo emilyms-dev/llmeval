@@ -120,7 +120,7 @@ def run(
             f"[cyan]{model_name}[/cyan]…"
         ):
             runner = Runner(runner_adapter, concurrency=concurrency)
-            suite_run = await runner.run(suite_def, tags=tags)
+            suite_run = await runner.run(suite_def, tags=tags, suite_path=suite_path)
 
         with console.status(
             f"Scoring with judge [cyan]{suite_def.suite.judge_model}[/cyan]…"
@@ -263,11 +263,7 @@ def list_runs(
     table.add_column("Started", justify="right")
 
     for r in runs:
-        rate = (
-            f"{r.passed_tests / r.total_tests * 100:.1f}%"
-            if r.total_tests
-            else "—"
-        )
+        rate = f"{r.passed_tests / r.total_tests * 100:.1f}%" if r.total_tests else "—"
         started = r.started_at.strftime("%Y-%m-%d %H:%M")
         table.add_row(
             r.run_id[:8] + "…",
@@ -279,6 +275,47 @@ def list_runs(
         )
 
     console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# serve
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address."),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
+    db: str | None = typer.Option(None, "--db", help="SQLite database path."),
+    reload: bool = typer.Option(
+        False, "--reload", help="Enable auto-reload (development only)."
+    ),
+) -> None:
+    """Start the dashboard API server.
+
+    The React dashboard (``dashboard/``) proxies ``/api`` requests here.
+    Open http://localhost:5173 after starting ``npm run dev`` in the
+    ``dashboard/`` directory.
+    """
+    try:
+        import uvicorn  # noqa: PLC0415
+    except ImportError:
+        _abort("uvicorn is not installed. " "Run: poetry install --with server")
+        return
+
+    from llmeval.server.api import create_app
+
+    db_path = _db_path(db)
+    console.print(
+        f"Starting llmeval API on [cyan]http://{host}:{port}[/cyan] "
+        f"— database: [dim]{db_path}[/dim]"
+    )
+    uvicorn.run(
+        create_app(db_path=db_path),
+        host=host,
+        port=port,
+        reload=reload,
+    )
 
 
 if __name__ == "__main__":

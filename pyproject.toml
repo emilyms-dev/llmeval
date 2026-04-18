@@ -31,6 +31,14 @@ pyyaml = "^6.0.2"
 aiosqlite = "^0.20.0"
 httpx = "^0.27.0"
 
+[tool.poetry.group.server.dependencies]
+fastapi = { version = "^0.115.0", extras = ["standard"] }
+uvicorn = { version = "^0.32.0", extras = ["standard"] }
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^8.1.0"
+furo = "^2024.8.6"
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
 pytest-asyncio = "^0.24.0"
@@ -60,8 +68,9 @@ select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "SIM"]
 ignore = ["ANN101", "ANN102"]
 
 [tool.ruff.lint.per-file-ignores]
-# Typer requires Option()/Argument() calls in function-signature defaults (B008).
+# Typer and FastAPI use function calls as argument defaults (B008).
 "llmeval/cli.py" = ["B008"]
+"llmeval/server/api.py" = ["B008"]
 
 [tool.black]
 target-version = ["py311"]

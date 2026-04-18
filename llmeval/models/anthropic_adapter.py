@@ -5,12 +5,14 @@ through the same :class:`~llmeval.models.base.ModelAdapter` interface as
 every other provider.
 
 Anthropic's Messages API differs from OpenAI's in two notable ways:
+
 - ``max_tokens`` is **required** — the adapter exposes it as a constructor
   parameter with a sensible default.
 - The ``system`` prompt is a top-level parameter, not a ``role: system``
   message in the messages list.
 
 API key resolution order:
+
 1. ``api_key`` constructor argument.
 2. ``ANTHROPIC_API_KEY`` environment variable (loaded from ``.env``).
 
@@ -106,9 +108,7 @@ class AnthropicAdapter(ModelAdapter):
 
             response = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
             return "".join(
-                block.text
-                for block in response.content
-                if block.type == "text"
+                block.text for block in response.content if block.type == "text"
             )
         except AnthropicAPIError as exc:
             raise ModelAdapterError(

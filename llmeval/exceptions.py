@@ -10,8 +10,7 @@ class LLMEvalError(Exception):
 
 
 class ConfigurationError(LLMEvalError):
-    """Raised when required configuration (env vars, file paths) is missing or invalid.
-    """
+    """Raised when required configuration (env vars, file paths) is missing or invalid."""  # noqa: E501
 
 
 class SchemaValidationError(LLMEvalError):

@@ -222,9 +222,7 @@ class DiffReporter:
                 f"[{_IMPROVEMENT_STYLE}]{delta_pp:+.1f}pp[/{_IMPROVEMENT_STYLE}]"
             )
         elif delta_pp < 0:
-            delta_str = (
-                f"[{_REGRESSION_STYLE}]{delta_pp:+.1f}pp[/{_REGRESSION_STYLE}]"
-            )
+            delta_str = f"[{_REGRESSION_STYLE}]{delta_pp:+.1f}pp[/{_REGRESSION_STYLE}]"
         else:
             delta_str = "[dim]±0.0pp[/dim]"
 
@@ -232,9 +230,7 @@ class DiffReporter:
         imp = f"[bold green]▲ Improvements: {improvements}[/bold green]"
         lines = [f"{reg}   {imp}   = Unchanged: {unchanged}"]
         if only_a or only_b:
-            lines.append(
-                f"[dim]Only in A: {only_a}   Only in B: {only_b}[/dim]"
-            )
+            lines.append(f"[dim]Only in A: {only_a}   Only in B: {only_b}[/dim]")
         lines.append(f"Pass-rate delta (B − A): {delta_str}")
 
         self._console.print(Panel("\n".join(lines), expand=False))
