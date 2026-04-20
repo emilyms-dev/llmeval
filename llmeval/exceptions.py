@@ -31,3 +31,7 @@ class StorageError(LLMEvalError):
 
 class RunnerError(LLMEvalError):
     """Raised when the test runner encounters an error executing a suite."""
+
+
+class DuplicateRunError(LLMEvalError):
+    """Raised when a new run is blocked because an identical suite is already active."""

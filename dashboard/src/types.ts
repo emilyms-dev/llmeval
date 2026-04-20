@@ -25,6 +25,7 @@ export interface RunSummary {
   status: string
   suite_path: string | null
   tags: string[]
+  labels: Record<string, string>
   started_at: string
   completed_at: string | null
   total_tests: number

@@ -127,12 +127,12 @@ class TestRunCommand:
         result = cli_runner.invoke(app, ["run", "--suite", "nonexistent.yaml"])
         assert result.exit_code == 2
 
-    def test_unsupported_model_prefix_exits_2(self) -> None:
+    def test_unsupported_model_prefix_exits_4(self) -> None:
         with patch(_LOAD_SUITE, return_value=_mock_suite()):
             result = cli_runner.invoke(
                 app, ["run", "--suite", "fake.yaml", "--model", "unknown-xyz"]
             )
-        assert result.exit_code == 2
+        assert result.exit_code == 4
 
     def test_all_pass_exits_0(self) -> None:
         suite_run = _make_run(passed=2, failed=0, errored=0)
@@ -173,7 +173,7 @@ class TestRunCommand:
             )
         assert result.exit_code == 1
 
-    def test_runner_error_exits_2(self) -> None:
+    def test_runner_error_exits_4(self) -> None:
         from llmeval.exceptions import RunnerError
 
         with (
@@ -188,7 +188,7 @@ class TestRunCommand:
             result = cli_runner.invoke(
                 app, ["run", "--suite", "fake.yaml", "--no-save"]
             )
-        assert result.exit_code == 2
+        assert result.exit_code == 4
 
     def test_output_contains_pass_rate(self) -> None:
         suite_run = _make_run(passed=2, failed=0)
@@ -257,9 +257,12 @@ class TestListCommand:
         ):
             result = cli_runner.invoke(app, ["list"])
         assert result.exit_code == 0
-        assert "Test Suite" in result.output
+        # Suite name may wrap across lines in the Rich table; check normalised output.
+        assert "Test" in result.output
+        assert "100.0%" in result.output
+        assert "completed" in result.output
 
-    def test_storage_error_exits_2(self) -> None:
+    def test_storage_error_exits_3(self) -> None:
         from llmeval.exceptions import StorageError
 
         with (
@@ -272,7 +275,7 @@ class TestListCommand:
             patch(_DB_CLOSE, new_callable=AsyncMock),
         ):
             result = cli_runner.invoke(app, ["list"])
-        assert result.exit_code == 2
+        assert result.exit_code == 3
 
 
 # ===========================================================================
@@ -292,7 +295,7 @@ class TestShowCommand:
         assert result.exit_code == 0
         assert "Test Suite" in result.output
 
-    def test_not_found_exits_2(self) -> None:
+    def test_not_found_exits_3(self) -> None:
         from llmeval.exceptions import StorageError
 
         with (
@@ -305,7 +308,7 @@ class TestShowCommand:
             patch(_DB_CLOSE, new_callable=AsyncMock),
         ):
             result = cli_runner.invoke(app, ["show", "bad-id"])
-        assert result.exit_code == 2
+        assert result.exit_code == 3
 
 
 # ===========================================================================
@@ -330,7 +333,7 @@ class TestDiffCommand:
         assert result.exit_code == 0
         assert "Test Suite" in result.output
 
-    def test_missing_run_exits_2(self) -> None:
+    def test_missing_run_exits_3(self) -> None:
         from llmeval.exceptions import StorageError
 
         with (
@@ -343,4 +346,193 @@ class TestDiffCommand:
             patch(_DB_CLOSE, new_callable=AsyncMock),
         ):
             result = cli_runner.invoke(app, ["diff", "id-a", "id-b"])
-        assert result.exit_code == 2
+        assert result.exit_code == 3
+
+# ===========================================================================
+# cancel
+# ===========================================================================
+
+_DB_CANCEL = "llmeval.storage.sqlite.SQLiteStorage.cancel_run"
+
+
+class TestCancelCommand:
+    def test_cancel_valid_run_exits_0(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(_DB_CANCEL, new_callable=AsyncMock),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["cancel", "some-run-id"])
+        assert result.exit_code == 0
+        assert "cancelled" in result.output
+
+    def test_cancel_not_found_exits_3(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from llmeval.exceptions import StorageError
+
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(
+                _DB_CANCEL,
+                new_callable=AsyncMock,
+                side_effect=StorageError("not found"),
+            ),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["cancel", "bad-id"])
+        assert result.exit_code == 3
+
+    def test_cancel_terminal_run_exits_3(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from llmeval.exceptions import StorageError
+
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(
+                _DB_CANCEL,
+                new_callable=AsyncMock,
+                side_effect=StorageError("cannot be cancelled (status: 'completed')"),
+            ),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["cancel", "completed-run-id"])
+        assert result.exit_code == 3
+
+
+# ===========================================================================
+# compare
+# ===========================================================================
+
+_DB_GET_RUN = "llmeval.storage.sqlite.SQLiteStorage.get_run"
+_DB_GET_PREV = "llmeval.storage.sqlite.SQLiteStorage.get_previous_run"
+
+
+class TestCompareCommand:
+    def test_compare_two_runs_exits_0(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        run_a = _make_run(passed=2, failed=0)
+        run_b = _make_run(passed=2, failed=0)
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(_DB_GET_RUN, new_callable=AsyncMock, side_effect=[run_a, run_b]),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["compare", "id-a", "id-b"])
+        assert result.exit_code == 0
+        assert "Test Suite" in result.output
+
+    def test_compare_json_flag_outputs_valid_json(self) -> None:
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        run_a = _make_run(passed=2, failed=0)
+        run_b = _make_run(passed=2, failed=0)
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(_DB_GET_RUN, new_callable=AsyncMock, side_effect=[run_a, run_b]),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["compare", "id-a", "id-b", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "regressions" in data
+        assert "run_a" in data
+        assert "run_b" in data
+        assert "tests" in data
+
+    def test_fail_on_regression_exits_1_with_regressions(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from llmeval.schema.results import CriterionScore, SuiteRun, TestResult
+
+        started = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        shared = "shared-test"
+
+        run_a = SuiteRun(
+            suite_name="Test Suite",
+            suite_version="1.0.0",
+            model="m",
+            judge_model="j",
+            started_at=started,
+            completed_at=started + timedelta(seconds=5),
+            results=[
+                TestResult(
+                    test_id=shared,
+                    prompt="p",
+                    model="m",
+                    raw_output="r",
+                    criterion_scores=[
+                        CriterionScore(name="q", score=0.9, reasoning="ok")
+                    ],
+                    weighted_score=0.9,
+                    passed=True,
+                )
+            ],
+        )
+        run_b = SuiteRun(
+            suite_name="Test Suite",
+            suite_version="1.0.0",
+            model="m",
+            judge_model="j",
+            started_at=started + timedelta(hours=1),
+            completed_at=started + timedelta(hours=1, seconds=5),
+            results=[
+                TestResult(
+                    test_id=shared,
+                    prompt="p",
+                    model="m",
+                    raw_output="r",
+                    criterion_scores=[
+                        CriterionScore(name="q", score=0.3, reasoning="poor")
+                    ],
+                    weighted_score=0.3,
+                    passed=False,
+                )
+            ],
+        )
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(_DB_GET_RUN, new_callable=AsyncMock, side_effect=[run_a, run_b]),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(
+                app, ["compare", "id-a", "id-b", "--fail-on-regression"]
+            )
+        assert result.exit_code == 1
+
+    def test_fail_on_regression_exits_0_when_no_regressions(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        run_a = _make_run(passed=2, failed=0)
+        run_b = _make_run(passed=2, failed=0)
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(_DB_GET_RUN, new_callable=AsyncMock, side_effect=[run_a, run_b]),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(
+                app, ["compare", "id-a", "id-b", "--fail-on-regression"]
+            )
+        assert result.exit_code == 0
+
+    def test_storage_error_exits_3(self) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from llmeval.exceptions import StorageError
+
+        with (
+            patch(_DB_INIT, new_callable=AsyncMock),
+            patch(
+                _DB_GET_RUN,
+                new_callable=AsyncMock,
+                side_effect=StorageError("not found"),
+            ),
+            patch(_DB_CLOSE, new_callable=AsyncMock),
+        ):
+            result = cli_runner.invoke(app, ["compare", "id-a", "id-b"])
+        assert result.exit_code == 3

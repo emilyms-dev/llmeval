@@ -41,6 +41,8 @@ dashboard/.vite/
 # Internal agent management
 CLAUDE.md
 .claude/
+CONTEXT.md
+IMPROVEMENTS.md
 
 # macOS
 .DS_Store

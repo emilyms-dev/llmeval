@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { fetchRun } from '../api'
+import { cancelRun, exportRunUrl, fetchRun } from '../api'
 import type { SuiteRun, TestResult } from '../types'
 import StatusBadge from './StatusBadge'
 
@@ -146,6 +146,7 @@ export default function RunDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [prevLoading, setPrevLoading] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     if (!runId) return
@@ -154,6 +155,21 @@ export default function RunDetail() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [runId])
+
+  async function handleCancel() {
+    if (!runId || !run) return
+    if (!confirm(`Cancel run ${runId.slice(0, 8)}?`)) return
+    setCancelling(true)
+    try {
+      await cancelRun(runId)
+      const updated = await fetchRun(runId)
+      setRun(updated)
+    } catch (e: unknown) {
+      alert((e as Error).message)
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   async function compareToPrevious() {
     if (!runId) return
@@ -187,7 +203,30 @@ export default function RunDetail() {
             <h1 className="text-xl font-semibold">{run.suite_name}</h1>
             <p className="text-sm text-gray-500 mt-0.5">v{run.suite_version} · {run.model}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {(run.status === 'pending' || run.status === 'running') && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="text-sm px-3 py-1.5 rounded border border-orange-300 text-orange-700 hover:bg-orange-50 transition-colors disabled:opacity-40 font-medium"
+              >
+                {cancelling ? 'Cancelling…' : 'Cancel run'}
+              </button>
+            )}
+            <a
+              href={exportRunUrl(run.run_id, 'csv')}
+              download
+              className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 transition-colors font-medium"
+            >
+              ↓ CSV
+            </a>
+            <a
+              href={exportRunUrl(run.run_id, 'json')}
+              download
+              className="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 transition-colors font-medium"
+            >
+              ↓ JSON
+            </a>
             <button
               onClick={compareToPrevious}
               disabled={prevLoading || run.status !== 'completed'}
@@ -220,6 +259,15 @@ export default function RunDetail() {
           {run.tags.length > 0 && <span>Tags: {run.tags.join(', ')}</span>}
           <span className="font-mono">{run.run_id}</span>
         </div>
+        {Object.keys(run.labels ?? {}).length > 0 && (
+          <div className="mt-2 flex gap-1.5 flex-wrap">
+            {Object.entries(run.labels).map(([k, v]) => (
+              <span key={k} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded font-mono">
+                {k}={v}
+              </span>
+            ))}
+          </div>
+        )}
         {run.error_message && (
           <p className="mt-3 text-sm text-red-700 bg-red-50 rounded px-3 py-2">{run.error_message}</p>
         )}

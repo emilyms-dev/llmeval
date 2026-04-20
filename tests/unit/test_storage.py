@@ -458,3 +458,455 @@ class TestDeserialise:
     def test_invalid_schema_raises_storage_error(self) -> None:
         with pytest.raises(StorageError, match="Failed to deserialise"):
             _deserialise('{"run_id": "x"}')  # missing required fields
+
+
+# ===========================================================================
+# SQLiteStorage.get_latest_run
+# ===========================================================================
+
+
+class TestGetLatestRun:
+    @pytest.mark.asyncio
+    async def test_returns_most_recent_completed(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        old = _run(started_at=t0)
+        old = old.model_copy(update={"completed_at": t0 + timedelta(seconds=5)})
+        new = _run(started_at=t0 + timedelta(hours=1))
+        new = new.model_copy(
+            update={"completed_at": t0 + timedelta(hours=1, seconds=5)}
+        )
+        await storage.save_run(old)
+        await storage.save_run(new)
+        result = await storage.get_latest_run()
+        assert result.run_id == new.run_id
+
+    @pytest.mark.asyncio
+    async def test_filters_by_suite_name(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        run_a = _run(suite_name="Suite A", started_at=t0)
+        run_b = _run(suite_name="Suite B", started_at=t0 + timedelta(hours=1))
+        await storage.save_run(run_a)
+        await storage.save_run(run_b)
+        result = await storage.get_latest_run(suite_name="Suite A")
+        assert result.suite_name == "Suite A"
+
+    @pytest.mark.asyncio
+    async def test_no_completed_run_raises_storage_error(self) -> None:
+        storage = await _storage()
+        pending = _run()
+        pending = pending.model_copy(
+            update={"status": "pending", "completed_at": None}
+        )
+        await storage.save_run(pending)
+        with pytest.raises(StorageError, match="No run found"):
+            await storage.get_latest_run()
+
+    @pytest.mark.asyncio
+    async def test_empty_db_raises_storage_error(self) -> None:
+        storage = await _storage()
+        with pytest.raises(StorageError, match="No run found"):
+            await storage.get_latest_run()
+
+
+# ===========================================================================
+# SQLiteStorage.list_runs — new filters
+# ===========================================================================
+
+
+class TestListRunsFiltered:
+    @pytest.mark.asyncio
+    async def test_filter_by_model(self) -> None:
+        storage = await _storage()
+        run_a = _run(model="gpt-4o")
+        run_b = _run(model="claude-sonnet-4-20250514")
+        await storage.save_run(run_a)
+        await storage.save_run(run_b)
+        results = await storage.list_runs(model="gpt-4o")
+        assert len(results) == 1
+        assert results[0].model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_filter_by_status(self) -> None:
+        storage = await _storage()
+        completed = _run()
+        failed = _run()
+        failed = failed.model_copy(
+            update={"status": "failed", "completed_at": None}
+        )
+        await storage.save_run(completed)
+        await storage.save_run(failed)
+        results = await storage.list_runs(status="failed")
+        assert len(results) == 1
+        assert results[0].status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_filter_by_tag(self) -> None:
+        storage = await _storage()
+        tagged = _run()
+        tagged = tagged.model_copy(update={"tags": ["regression", "ci"]})
+        untagged = _run()
+        await storage.save_run(tagged)
+        await storage.save_run(untagged)
+        results = await storage.list_runs(tag="regression")
+        assert len(results) == 1
+        assert "regression" in results[0].tags
+
+    @pytest.mark.asyncio
+    async def test_filter_by_date_from(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 6, 1, tzinfo=UTC)
+        old = _run(started_at=t0)
+        new = _run(started_at=t0 + timedelta(days=30))
+        await storage.save_run(old)
+        await storage.save_run(new)
+        results = await storage.list_runs(date_from=t0 + timedelta(days=1))
+        assert len(results) == 1
+        assert results[0].run_id == new.run_id
+
+    @pytest.mark.asyncio
+    async def test_filter_by_date_to(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 6, 1, tzinfo=UTC)
+        old = _run(started_at=t0)
+        new = _run(started_at=t0 + timedelta(days=30))
+        await storage.save_run(old)
+        await storage.save_run(new)
+        results = await storage.list_runs(date_to=t0 + timedelta(days=1))
+        assert len(results) == 1
+        assert results[0].run_id == old.run_id
+
+    @pytest.mark.asyncio
+    async def test_multiple_filters_combined(self) -> None:
+        storage = await _storage()
+        match = _run(suite_name="Suite A", model="gpt-4o")
+        no_match = _run(suite_name="Suite A", model="claude-sonnet-4-20250514")
+        await storage.save_run(match)
+        await storage.save_run(no_match)
+        results = await storage.list_runs(suite_name="Suite A", model="gpt-4o")
+        assert len(results) == 1
+        assert results[0].model == "gpt-4o"
+
+
+# ===========================================================================
+# SQLiteStorage.get_previous_run
+# ===========================================================================
+
+
+class TestGetPreviousRun:
+    @pytest.mark.asyncio
+    async def test_returns_earlier_run(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        older = _run(started_at=t0)
+        older = older.model_copy(update={"completed_at": t0 + timedelta(seconds=5)})
+        newer = _run(started_at=t0 + timedelta(hours=1))
+        newer = newer.model_copy(
+            update={"completed_at": t0 + timedelta(hours=1, seconds=5)}
+        )
+        await storage.save_run(older)
+        await storage.save_run(newer)
+        result = await storage.get_previous_run("My Suite", newer.run_id)
+        assert result.run_id == older.run_id
+
+    @pytest.mark.asyncio
+    async def test_no_previous_raises_storage_error(self) -> None:
+        storage = await _storage()
+        run = _run()
+        await storage.save_run(run)
+        with pytest.raises(StorageError, match="No previous completed run"):
+            await storage.get_previous_run("My Suite", run.run_id)
+
+    @pytest.mark.asyncio
+    async def test_ignores_pending_runs(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        pending = _run(started_at=t0)
+        pending = pending.model_copy(
+            update={"status": "pending", "completed_at": None}
+        )
+        completed = _run(started_at=t0 + timedelta(hours=1))
+        completed = completed.model_copy(
+            update={"completed_at": t0 + timedelta(hours=1, seconds=5)}
+        )
+        await storage.save_run(pending)
+        await storage.save_run(completed)
+        # No completed run exists before `completed`, so should raise.
+        with pytest.raises(StorageError, match="No previous completed run"):
+            await storage.get_previous_run("My Suite", completed.run_id)
+
+
+# ===========================================================================
+# SQLiteStorage.cancel_run
+# ===========================================================================
+
+
+class TestCancelRun:
+    @pytest.mark.asyncio
+    async def test_cancel_pending_run(self) -> None:
+        storage = await _storage()
+        run = _run()
+        pending = run.model_copy(update={"status": "pending", "completed_at": None})
+        await storage.save_run(pending)
+        await storage.cancel_run(pending.run_id)
+        updated = await storage.get_run(pending.run_id)
+        assert updated.status == "cancelled"
+        assert updated.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_run(self) -> None:
+        storage = await _storage()
+        run = _run()
+        running = run.model_copy(update={"status": "running"})
+        await storage.save_run(running)
+        await storage.cancel_run(running.run_id)
+        updated = await storage.get_run(running.run_id)
+        assert updated.status == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cancel_already_cancelled_is_noop(self) -> None:
+        storage = await _storage()
+        run = _run()
+        cancelled = run.model_copy(update={"status": "cancelled"})
+        await storage.save_run(cancelled)
+        await storage.cancel_run(cancelled.run_id)  # must not raise
+        updated = await storage.get_run(cancelled.run_id)
+        assert updated.status == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cancel_completed_raises(self) -> None:
+        storage = await _storage()
+        run = _run()  # default status is "completed"
+        await storage.save_run(run)
+        with pytest.raises(StorageError, match="cannot be cancelled"):
+            await storage.cancel_run(run.run_id)
+
+    @pytest.mark.asyncio
+    async def test_cancel_not_found_raises(self) -> None:
+        storage = await _storage()
+        with pytest.raises(StorageError):
+            await storage.cancel_run("no-such-run-id-at-all")
+
+
+# ===========================================================================
+# SQLiteStorage.get_run_status
+# ===========================================================================
+
+
+class TestGetRunStatus:
+    @pytest.mark.asyncio
+    async def test_returns_status_for_completed_run(self) -> None:
+        storage = await _storage()
+        run = _run()
+        await storage.save_run(run)
+        status = await storage.get_run_status(run.run_id)
+        assert status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_returns_status_for_pending_run(self) -> None:
+        storage = await _storage()
+        run = _run()
+        pending = run.model_copy(update={"status": "pending", "completed_at": None})
+        await storage.save_run(pending)
+        status = await storage.get_run_status(pending.run_id)
+        assert status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_not_found_raises_storage_error(self) -> None:
+        storage = await _storage()
+        with pytest.raises(StorageError, match="not found"):
+            await storage.get_run_status("no-such-run-id-xyz")
+
+
+# ===========================================================================
+# Labels persistence
+# ===========================================================================
+
+
+class TestLabels:
+    @pytest.mark.asyncio
+    async def test_labels_round_trip(self) -> None:
+        storage = await _storage()
+        run = _run()
+        labelled = run.model_copy(
+            update={"labels": {"commit": "abc123", "branch": "main", "pr": "42"}}
+        )
+        await storage.save_run(labelled)
+        fetched = await storage.get_run(labelled.run_id)
+        assert fetched.labels == {"commit": "abc123", "branch": "main", "pr": "42"}
+
+    @pytest.mark.asyncio
+    async def test_empty_labels_default(self) -> None:
+        storage = await _storage()
+        run = _run()
+        await storage.save_run(run)
+        fetched = await storage.get_run(run.run_id)
+        assert fetched.labels == {}
+
+
+# ===========================================================================
+# SQLiteStorage.get_run_brief
+# ===========================================================================
+
+
+class TestGetRunBrief:
+    @pytest.mark.asyncio
+    async def test_returns_correct_counts(self) -> None:
+        storage = await _storage()
+        run = _run(results=[_result("t1", passed=True), _result("t2", passed=False)])
+        await storage.save_run(run)
+        brief = await storage.get_run_brief(run.run_id)
+        assert brief.run_id == run.run_id
+        assert brief.status == "completed"
+        assert brief.total_tests == 2
+        assert brief.passed_tests == 1
+        assert brief.failed_tests == 1
+        assert brief.errored_tests == 0
+
+    @pytest.mark.asyncio
+    async def test_completed_at_is_populated(self) -> None:
+        storage = await _storage()
+        run = _run()
+        await storage.save_run(run)
+        brief = await storage.get_run_brief(run.run_id)
+        assert brief.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_not_found_raises_storage_error(self) -> None:
+        storage = await _storage()
+        from llmeval.storage.base import RunBrief  # noqa: F401
+        with pytest.raises(StorageError, match="not found"):
+            await storage.get_run_brief("no-such-id-xxxx")
+
+
+# ===========================================================================
+# SQLiteStorage.get_latest_run — status=None
+# ===========================================================================
+
+
+class TestGetLatestRunStatusNone:
+    @pytest.mark.asyncio
+    async def test_status_none_returns_absolute_latest(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        completed = _run(started_at=t0)
+        running = _run(started_at=t0 + timedelta(hours=1))
+        running = running.model_copy(
+            update={"status": "running", "completed_at": None}
+        )
+        await storage.save_run(completed)
+        await storage.save_run(running)
+        latest = await storage.get_latest_run(status=None)
+        assert latest.run_id == running.run_id
+
+    @pytest.mark.asyncio
+    async def test_status_none_ignores_completed_filter(self) -> None:
+        storage = await _storage()
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
+        failed = _run(started_at=t0 + timedelta(hours=2))
+        failed = failed.model_copy(update={"status": "failed", "completed_at": None})
+        await storage.save_run(failed)
+        # With status=None we should still find the failed run (not raise).
+        latest = await storage.get_latest_run(status=None)
+        assert latest.run_id == failed.run_id
+
+
+# ===========================================================================
+# SQLiteStorage.list_runs — exact vs fuzzy tag matching
+# ===========================================================================
+
+
+class TestTagMatching:
+    @pytest.mark.asyncio
+    async def test_exact_match_finds_full_tag(self) -> None:
+        storage = await _storage()
+        run = _run()
+        run = run.model_copy(update={"tags": ["regression-critical", "ci"]})
+        await storage.save_run(run)
+        results = await storage.list_runs(tag="regression-critical", tag_match="exact")
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_exact_match_does_not_find_partial(self) -> None:
+        storage = await _storage()
+        run = _run()
+        run = run.model_copy(update={"tags": ["regression-critical"]})
+        await storage.save_run(run)
+        # "regression" is a substring but not an exact token.
+        results = await storage.list_runs(tag="regression", tag_match="exact")
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_match_finds_substring(self) -> None:
+        storage = await _storage()
+        run = _run()
+        run = run.model_copy(update={"tags": ["regression-critical"]})
+        await storage.save_run(run)
+        results = await storage.list_runs(tag="regression", tag_match="fuzzy")
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_exact_match_does_not_match_different_tag(self) -> None:
+        storage = await _storage()
+        run_a = _run()
+        run_a = run_a.model_copy(update={"tags": ["tone"]})
+        run_b = _run()
+        run_b = run_b.model_copy(update={"tags": ["ci"]})
+        await storage.save_run(run_a)
+        await storage.save_run(run_b)
+        results = await storage.list_runs(tag="tone", tag_match="exact")
+        assert len(results) == 1
+        assert "tone" in results[0].tags
+
+    @pytest.mark.asyncio
+    async def test_default_tag_match_is_exact(self) -> None:
+        storage = await _storage()
+        run = _run()
+        run = run.model_copy(update={"tags": ["regression-critical"]})
+        await storage.save_run(run)
+        # Default (no tag_match kwarg) should be exact — "regression" won't match.
+        results = await storage.list_runs(tag="regression")
+        assert len(results) == 0
+
+
+# ===========================================================================
+# date_from / date_to with timezone-aware datetimes
+# ===========================================================================
+
+
+class TestDateFilterTimezone:
+    @pytest.mark.asyncio
+    async def test_timezone_aware_date_from(self) -> None:
+        from datetime import timezone
+
+        storage = await _storage()
+        t0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        early = _run(started_at=t0)
+        late = _run(started_at=t0 + timedelta(hours=2))
+        await storage.save_run(early)
+        await storage.save_run(late)
+
+        # Use a non-UTC timezone equivalent to UTC+2.
+        tz_plus2 = timezone(timedelta(hours=2))
+        cutoff = datetime(2024, 6, 1, 15, 0, 0, tzinfo=tz_plus2)  # same as 13:00 UTC
+        results = await storage.list_runs(date_from=cutoff)
+        assert len(results) == 1
+        assert results[0].run_id == late.run_id
+
+    @pytest.mark.asyncio
+    async def test_timezone_aware_date_to(self) -> None:
+        from datetime import timezone
+
+        storage = await _storage()
+        t0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        early = _run(started_at=t0)
+        late = _run(started_at=t0 + timedelta(hours=2))
+        await storage.save_run(early)
+        await storage.save_run(late)
+
+        tz_plus2 = timezone(timedelta(hours=2))
+        cutoff = datetime(2024, 6, 1, 15, 0, 0, tzinfo=tz_plus2)  # 13:00 UTC
+        results = await storage.list_runs(date_to=cutoff)
+        assert len(results) == 1
+        assert results[0].run_id == early.run_id

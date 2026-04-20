@@ -20,7 +20,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
-RunStatus = Literal["pending", "running", "completed", "failed"]
+RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 
 
 class CriterionScore(BaseModel):
@@ -93,6 +93,7 @@ class SuiteRun(BaseModel):
             - ``"running"`` — pipeline is actively executing.
             - ``"completed"`` — pipeline finished (tests may still have failed).
             - ``"failed"`` — pipeline itself encountered an unrecoverable error.
+            - ``"cancelled"`` — stopped by user before or during execution.
 
         suite_path: Filesystem path to the suite YAML/JSON that was loaded.
             ``None`` when the run was created programmatically without a file.
@@ -116,6 +117,7 @@ class SuiteRun(BaseModel):
     status: RunStatus = "completed"
     suite_path: str | None = None
     tags: list[str] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
     concurrency: int = Field(default=5, ge=1)
     error_message: str | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
