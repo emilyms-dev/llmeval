@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from llmeval.exceptions import ModelAdapterError, RunnerError
-from llmeval.models.base import ModelAdapter
+from llmeval.models.base import ModelAdapter, ModelResponse
 from llmeval.runner import Runner, _filter_tests
 from llmeval.schema.results import SuiteRun
 from llmeval.schema.test_suite import (
@@ -76,7 +76,7 @@ def _make_adapter(model_id: str = "claude-sonnet-4-20250514") -> MagicMock:
     """Return a mock ModelAdapter that returns 'mocked response' by default."""
     adapter = MagicMock(spec=ModelAdapter)
     adapter.model_id = model_id
-    adapter.complete = AsyncMock(return_value="mocked response")
+    adapter.complete = AsyncMock(return_value=ModelResponse(text="mocked response"))
     return adapter
 
 
@@ -183,7 +183,7 @@ class TestRunnerHappyPath:
     @pytest.mark.asyncio
     async def test_raw_output_stored_correctly(self) -> None:
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(return_value="The answer is 42.")
+        adapter.complete = AsyncMock(return_value=ModelResponse(text="The answer is 42."))
         runner = Runner(adapter)
         suite_run = await runner.run(_make_suite([_make_test("t1")]))
         assert suite_run.results[0].raw_output == "The answer is 42."
@@ -289,12 +289,12 @@ class TestRunnerErrorHandling:
         """One failing test must not prevent others from running."""
         call_count = 0
 
-        async def flaky(prompt: str, system_prompt: str | None = None) -> str:
+        async def flaky(prompt: str, system_prompt: str | None = None) -> ModelResponse:
             nonlocal call_count
             call_count += 1
             if prompt == "fail me":
                 raise ModelAdapterError("forced failure")
-            return "ok"
+            return ModelResponse(text="ok")
 
         adapter = _make_adapter()
         adapter.complete = flaky
@@ -336,12 +336,14 @@ class TestRunnerErrorHandling:
         """An unexpected exception from one test must not abort others."""
         call_count = 0
 
-        async def raises_on_first(prompt: str, system_prompt: str | None = None) -> str:
+        async def raises_on_first(
+            prompt: str, system_prompt: str | None = None
+        ) -> ModelResponse:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise RuntimeError("one-time failure")
-            return "ok"
+            return ModelResponse(text="ok")
 
         adapter = _make_adapter()
         adapter.complete = raises_on_first
@@ -411,13 +413,13 @@ class TestRunnerConcurrency:
 
         async def controlled_complete(
             prompt: str, system_prompt: str | None = None
-        ) -> str:
+        ) -> ModelResponse:
             nonlocal current_concurrent, max_concurrent
             current_concurrent += 1
             max_concurrent = max(max_concurrent, current_concurrent)
             await asyncio.sleep(0)  # yield to allow other tasks to run
             current_concurrent -= 1
-            return "ok"
+            return ModelResponse(text="ok")
 
         adapter = _make_adapter()
         adapter.complete = controlled_complete

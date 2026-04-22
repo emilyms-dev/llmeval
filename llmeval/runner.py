@@ -139,7 +139,7 @@ class Runner:
                 logger.debug(
                     "Running test %r against %r", test.id, self._adapter.model_id
                 )
-                raw_output = await self._adapter.complete(
+                model_resp = await self._adapter.complete(
                     test.prompt,
                     system_prompt=test.system_prompt,
                 )
@@ -147,7 +147,7 @@ class Runner:
                     test_id=test.id,
                     prompt=test.prompt,
                     model=self._adapter.model_id,
-                    raw_output=raw_output,
+                    raw_output=model_resp.text,
                 )
             except ModelAdapterError as exc:
                 logger.warning("Test %r errored (adapter): %s", test.id, exc)

@@ -34,6 +34,7 @@ def _openai_response(content: str | None) -> MagicMock:
     choice.message.content = content
     resp = MagicMock()
     resp.choices = [choice]
+    resp.usage = None
     return resp
 
 
@@ -47,6 +48,7 @@ def _anthropic_response(*texts: str) -> MagicMock:
         blocks.append(block)
     resp = MagicMock()
     resp.content = blocks
+    resp.usage = None
     return resp
 
 
@@ -145,7 +147,7 @@ class TestOpenAIAdapter:
 
         result = await adapter.complete("Say hi")
 
-        assert result == "Hello!"
+        assert result.text == "Hello!"
         call_kwargs = mock_create.call_args.kwargs
         assert call_kwargs["model"] == "gpt-4o"
         # No system message — only user message
@@ -170,7 +172,7 @@ class TestOpenAIAdapter:
             return_value=_openai_response(None)
         )
         result = await adapter.complete("prompt")
-        assert result == ""
+        assert result.text == ""
 
     @pytest.mark.asyncio
     async def test_complete_wraps_api_error_in_model_adapter_error(self) -> None:
@@ -251,7 +253,7 @@ class TestAnthropicAdapter:
 
         result = await adapter.complete("Say hi")
 
-        assert result == "Hello!"
+        assert result.text == "Hello!"
         call_kwargs = mock_create.call_args.kwargs
         assert call_kwargs["model"] == "claude-sonnet-4-20250514"
         assert call_kwargs["messages"] == [{"role": "user", "content": "Say hi"}]
@@ -278,7 +280,7 @@ class TestAnthropicAdapter:
             return_value=_anthropic_response("Hello", " world")
         )
         result = await adapter.complete("Say hi")
-        assert result == "Hello world"
+        assert result.text == "Hello world"
 
     @pytest.mark.asyncio
     async def test_complete_skips_non_text_blocks(self) -> None:
@@ -292,11 +294,12 @@ class TestAnthropicAdapter:
 
         resp = MagicMock()
         resp.content = [tool_block, text_block]
+        resp.usage = None
 
         adapter = self._make()
         adapter._client.messages.create = AsyncMock(return_value=resp)
         result = await adapter.complete("prompt")
-        assert result == "actual text"
+        assert result.text == "actual text"
 
     @pytest.mark.asyncio
     async def test_complete_returns_empty_string_on_no_text_blocks(self) -> None:
@@ -304,11 +307,12 @@ class TestAnthropicAdapter:
         tool_block.type = "tool_use"
         resp = MagicMock()
         resp.content = [tool_block]
+        resp.usage = None
 
         adapter = self._make()
         adapter._client.messages.create = AsyncMock(return_value=resp)
         result = await adapter.complete("prompt")
-        assert result == ""
+        assert result.text == ""
 
     @pytest.mark.asyncio
     async def test_complete_passes_max_tokens(self) -> None:

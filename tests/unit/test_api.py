@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import os
 import tempfile  # noqa: F401 (imported for clarity; used indirectly)
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -67,8 +69,19 @@ async def _seed(db_path: str, *runs: SuiteRun) -> None:
             await storage.save_run(run)
 
 
-def _client(app: object) -> AsyncClient:
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+@asynccontextmanager
+async def _client(app: object) -> AsyncGenerator[AsyncClient, None]:
+    """Async context manager that fires the app's lifespan around the client.
+
+    The shared ``SQLiteStorage`` is initialised during the lifespan startup
+    phase and closed on exit, mirroring production behaviour.
+    """
+    lifespan = app.router.lifespan_context  # type: ignore[union-attr]
+    async with lifespan(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            yield client
 
 
 # ---------------------------------------------------------------------------
@@ -650,3 +663,110 @@ class TestRateLimit:
                 resp = await client.post("/api/runs", json={"suite_path": "s.yaml"})
 
         assert resp.status_code == 429
+
+
+# ===========================================================================
+# RunRequest samples field
+# ===========================================================================
+
+
+class TestRunRequestSamples:
+    @pytest.mark.asyncio
+    async def test_samples_field_defaults_to_one(self) -> None:
+        from llmeval.server.api import RunRequest
+
+        req = RunRequest(suite_path="s.yaml")
+        assert req.samples == 1
+
+    @pytest.mark.asyncio
+    async def test_samples_forwarded_to_pipeline(self, tmp_path: object) -> None:
+        """samples=3 in the request body must reach _run_pipeline."""
+        from unittest.mock import MagicMock, patch
+        from llmeval.server import api as api_module
+
+        db_file = os.path.join(str(tmp_path), "samples.db")
+        api_module._post_runs_calls.clear()
+        app = create_app(db_path=db_file)
+
+        suite_mock = MagicMock()
+        suite_mock.suite.name = "Samples Suite"
+        suite_mock.suite.model = "m"
+        suite_mock.suite.judge_model = "j"
+        suite_mock.suite.version = "1.0"
+        suite_mock.tests = []
+
+        pipeline_kwargs: dict = {}
+
+        async def capture_pipeline(**kwargs: object) -> None:
+            pipeline_kwargs.update(kwargs)
+
+        with (
+            patch("llmeval.schema.test_suite.load_suite", return_value=suite_mock),
+            patch("llmeval.models.create_adapter"),
+            patch("llmeval.server.api._run_pipeline", side_effect=capture_pipeline),
+        ):
+            async with _client(app) as client:
+                resp = await client.post(
+                    "/api/runs", json={"suite_path": "s.yaml", "samples": 3}
+                )
+
+        assert resp.status_code == 202
+        assert pipeline_kwargs.get("samples") == 3
+
+
+# ===========================================================================
+# Lifespan: shared storage + multi-worker warning
+# ===========================================================================
+
+
+class TestLifespan:
+    @pytest.mark.asyncio
+    async def test_storage_available_after_startup(self, tmp_path: object) -> None:
+        """app.state.storage must be initialised after the lifespan starts."""
+        db_file = os.path.join(str(tmp_path), "ls.db")
+        app = create_app(db_path=db_file)
+        lifespan = app.router.lifespan_context
+        async with lifespan(app):
+            assert hasattr(app.state, "storage")
+            storage = app.state.storage
+            from llmeval.storage.sqlite import SQLiteStorage
+
+            assert isinstance(storage, SQLiteStorage)
+
+    @pytest.mark.asyncio
+    async def test_storage_shared_across_requests(self, tmp_path: object) -> None:
+        """All requests must receive the same storage instance."""
+        db_file = os.path.join(str(tmp_path), "ls2.db")
+        run = _run()
+        await _seed(db_file, run)
+        app = create_app(db_path=db_file)
+        storage_ids: list[int] = []
+
+        async with _client(app) as client:
+            for _ in range(3):
+                resp = await client.get("/api/runs")
+                assert resp.status_code == 200
+                storage_ids.append(id(app.state.storage))
+
+        # All three requests saw the same storage object — none was re-created.
+        assert len(set(storage_ids)) == 1
+        assert len(storage_ids) == 3
+
+    @pytest.mark.asyncio
+    async def test_multi_worker_warning_logged(
+        self, tmp_path: object, caplog: object
+    ) -> None:
+        """A warning must be logged when WEB_CONCURRENCY > 1."""
+        import logging
+
+        db_file = os.path.join(str(tmp_path), "mw.db")
+        app = create_app(db_path=db_file)
+        lifespan = app.router.lifespan_context
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setenv("WEB_CONCURRENCY", "2")
+            with caplog.at_level(logging.WARNING, logger="llmeval.server.api"):  # type: ignore[union-attr]
+                async with lifespan(app):
+                    pass
+
+        assert any("WEB_CONCURRENCY" in r.message for r in caplog.records)  # type: ignore[union-attr]

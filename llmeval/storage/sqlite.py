@@ -31,14 +31,17 @@ complete :class:`~llmeval.schema.results.SuiteRun` round-trips without loss::
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import aiosqlite
 
 from llmeval.exceptions import StorageError
 from llmeval.schema.results import RunStatus, SuiteRun
+from llmeval.storage._errors import storage_op
 from llmeval.storage.base import RunBrief, StorageBackend
 
 _CREATE_TABLE = """
@@ -152,6 +155,10 @@ class SQLiteStorage(StorageBackend):
         try:
             self._conn = await aiosqlite.connect(self._db_path)
             self._conn.row_factory = aiosqlite.Row
+            # WAL mode allows concurrent readers and a background pipeline writer
+            # without hitting "database is locked" when the request-handler
+            # connection and the per-pipeline connection overlap.
+            await self._conn.execute("PRAGMA journal_mode=WAL")
             await self._conn.execute(_CREATE_TABLE)
             await self._conn.execute(_CREATE_IDX_SUITE_NAME)
             await self._conn.execute(_CREATE_IDX_MODEL)
@@ -188,6 +195,37 @@ class SQLiteStorage(StorageBackend):
         return self._conn
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _resolve_run_id(self, run_id: str) -> str:
+        """Resolve a full UUID or unambiguous prefix to a canonical run ID.
+
+        Args:
+            run_id: Full UUID or unique prefix (minimum 8 hex characters
+                recommended).
+
+        Returns:
+            The full run ID string stored in the database.
+
+        Raises:
+            StorageError: If *run_id* matches zero or more than one run.
+        """
+        async with storage_op(f"Failed to resolve run ID {run_id!r}"), self._db.execute(
+            "SELECT run_id FROM suite_runs WHERE run_id LIKE :prefix",
+            {"prefix": run_id + "%"},
+        ) as cursor:
+            rows = await cursor.fetchall()
+        if not rows:
+            raise StorageError(f"Run {run_id!r} not found.")
+        if len(rows) > 1:
+            raise StorageError(
+                f"Prefix {run_id!r} is ambiguous ({len(rows)} matches). "
+                "Provide more characters."
+            )
+        return cast(str, rows[0]["run_id"])
+
+    # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
 
@@ -215,7 +253,7 @@ class SQLiteStorage(StorageBackend):
         )
         run_json = suite_run.model_dump_json()
 
-        try:
+        async with storage_op(f"Failed to save run {suite_run.run_id!r}"):
             await self._db.execute(
                 """
                 INSERT OR REPLACE INTO suite_runs (
@@ -249,12 +287,6 @@ class SQLiteStorage(StorageBackend):
                 },
             )
             await self._db.commit()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(
-                f"Failed to save run {suite_run.run_id!r}: {exc}"
-            ) from exc
 
     async def get_run(self, run_id: str) -> SuiteRun:
         """Fetch a single run by UUID or unambiguous prefix.
@@ -272,26 +304,15 @@ class SQLiteStorage(StorageBackend):
             StorageError: If *run_id* matches zero or more than one run, or if
                 deserialisation fails.
         """
-        try:
-            async with self._db.execute(
-                "SELECT run_json FROM suite_runs WHERE run_id LIKE :prefix",
-                {"prefix": run_id + "%"},
-            ) as cursor:
-                rows = await cursor.fetchall()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(f"Failed to fetch run {run_id!r}: {exc}") from exc
-
-        if not rows:
+        resolved = await self._resolve_run_id(run_id)
+        async with storage_op(f"Failed to fetch run {run_id!r}"), self._db.execute(
+            "SELECT run_json FROM suite_runs WHERE run_id = :run_id",
+            {"run_id": resolved},
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
             raise StorageError(f"Run {run_id!r} not found.")
-        if len(rows) > 1:
-            raise StorageError(
-                f"Prefix {run_id!r} is ambiguous ({len(rows)} matches). "
-                "Provide more characters."
-            )
-
-        return _deserialise(rows[0]["run_json"])
+        return _deserialise(row["run_json"])
 
     async def get_run_brief(self, run_id: str) -> RunBrief:
         """Return only indexed metadata columns for *run_id*.
@@ -309,32 +330,26 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If the run is not found or the query fails.
         """
-        try:
-            async with self._db.execute(
+        resolved = await self._resolve_run_id(run_id)
+        async with (
+            storage_op(f"Failed to fetch brief for run {run_id!r}"),
+            self._db.execute(
                 """
                 SELECT run_id, status, total_tests, passed_tests,
                        failed_tests, errored_tests, completed_at
                 FROM suite_runs WHERE run_id = :run_id
                 """,
-                {"run_id": run_id},
-            ) as cursor:
-                row = await cursor.fetchone()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(
-                f"Failed to fetch brief for run {run_id!r}: {exc}"
-            ) from exc
-
+                {"run_id": resolved},
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
         if row is None:
             raise StorageError(f"Run {run_id!r} not found.")
 
         completed_at: datetime | None = None
         if row["completed_at"]:
-            try:
+            with contextlib.suppress(ValueError):
                 completed_at = datetime.fromisoformat(row["completed_at"])
-            except ValueError:
-                pass
 
         return RunBrief(
             run_id=row["run_id"],
@@ -366,26 +381,24 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If no matching run exists or the query fails.
         """
-        try:
-            conditions: list[str] = []
-            params: dict[str, object] = {}
-            if status is not None:
-                conditions.append("status = :status")
-                params["status"] = status
-            if suite_name is not None:
-                conditions.append("suite_name = :suite_name")
-                params["suite_name"] = suite_name
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-            query = (
-                f"SELECT run_json FROM suite_runs {where} "
-                "ORDER BY started_at DESC LIMIT 1"
-            )
-            async with self._db.execute(query, params) as cursor:
-                row = await cursor.fetchone()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(f"Failed to fetch latest run: {exc}") from exc
+        conditions: list[str] = []
+        params: dict[str, object] = {}
+        if status is not None:
+            conditions.append("status = :status")
+            params["status"] = status
+        if suite_name is not None:
+            conditions.append("suite_name = :suite_name")
+            params["suite_name"] = suite_name
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = (
+            f"SELECT run_json FROM suite_runs {where} "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+        async with (
+            storage_op("Failed to fetch latest run"),
+            self._db.execute(query, params) as cursor,
+        ):
+            row = await cursor.fetchone()
 
         if row is None:
             parts = []
@@ -413,8 +426,9 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If no previous run exists or the query fails.
         """
-        try:
-            async with self._db.execute(
+        async with (
+            storage_op(f"Failed to fetch previous run for {suite_name!r}"),
+            self._db.execute(
                 """
                 SELECT run_json FROM suite_runs
                 WHERE suite_name = :suite_name
@@ -427,14 +441,9 @@ class SQLiteStorage(StorageBackend):
                 LIMIT 1
                 """,
                 {"suite_name": suite_name, "run_id": before_run_id},
-            ) as cursor:
-                row = await cursor.fetchone()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(
-                f"Failed to fetch previous run for {suite_name!r}: {exc}"
-            ) from exc
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
 
         if row is None:
             raise StorageError(
@@ -480,22 +489,18 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If the run is not found or the query fails.
         """
-        try:
-            async with self._db.execute(
+        resolved = await self._resolve_run_id(run_id)
+        async with (
+            storage_op(f"Failed to fetch status for run {run_id!r}"),
+            self._db.execute(
                 "SELECT status FROM suite_runs WHERE run_id = :run_id",
-                {"run_id": run_id},
-            ) as cursor:
-                row = await cursor.fetchone()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(
-                f"Failed to fetch status for run {run_id!r}: {exc}"
-            ) from exc
-
+                {"run_id": resolved},
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
         if row is None:
             raise StorageError(f"Run {run_id!r} not found.")
-        return row["status"]  # type: ignore[return-value]
+        return cast(RunStatus, row["status"])
 
     async def list_runs(
         self,
@@ -569,14 +574,11 @@ class SQLiteStorage(StorageBackend):
         params["limit"] = limit
         params["offset"] = offset
 
-        try:
-            async with self._db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(f"Failed to list runs: {exc}") from exc
-
+        async with (
+            storage_op("Failed to list runs"),
+            self._db.execute(query, params) as cursor,
+        ):
+            rows = await cursor.fetchall()
         return [_deserialise(row["run_json"]) for row in rows]
 
     async def delete_run(self, run_id: str) -> None:
@@ -588,18 +590,13 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If *run_id* is not found or the delete fails.
         """
-        try:
+        async with storage_op(f"Failed to delete run {run_id!r}"):
             async with self._db.execute(
                 "DELETE FROM suite_runs WHERE run_id = :run_id",
                 {"run_id": run_id},
             ) as cursor:
                 deleted = cursor.rowcount
             await self._db.commit()
-        except StorageError:
-            raise
-        except Exception as exc:
-            raise StorageError(f"Failed to delete run {run_id!r}: {exc}") from exc
-
         if deleted == 0:
             raise StorageError(f"Run {run_id!r} not found; nothing deleted.")
 

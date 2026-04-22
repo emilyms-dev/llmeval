@@ -7,24 +7,23 @@ interface as every other provider.
 API key resolution order:
 
 1. ``api_key`` constructor argument (useful in tests / programmatic use).
-2. ``OPENAI_API_KEY`` environment variable (loaded from ``.env`` via
-   ``python-dotenv``).
+2. ``OPENAI_API_KEY`` environment variable (loaded from ``.env`` via the
+   global ``load_dotenv()`` call in :mod:`llmeval.cli`).
 
 Raises :class:`~llmeval.exceptions.ConfigurationError` at construction time
 if no key is available, so misconfiguration is caught before any API call.
 """
 
+from __future__ import annotations
+
 import os
 
-from dotenv import load_dotenv
 from openai import APIError as OpenAIAPIError
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from llmeval.exceptions import ConfigurationError, ModelAdapterError
-from llmeval.models.base import ModelAdapter
-
-load_dotenv()
+from llmeval.models.base import ModelAdapter, ModelResponse
 
 
 class OpenAIAdapter(ModelAdapter):
@@ -34,12 +33,19 @@ class OpenAIAdapter(ModelAdapter):
         model: OpenAI model identifier (e.g. ``"gpt-4o"``, ``"o3-mini"``).
         api_key: OpenAI API key. When ``None`` the value of the
             ``OPENAI_API_KEY`` environment variable is used.
+        temperature: Sampling temperature passed to the API. ``None`` omits
+            the parameter so the model's server-side default applies.
 
     Raises:
         ConfigurationError: If no API key can be found.
     """
 
-    def __init__(self, model: str, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        temperature: float | None = None,
+    ) -> None:
         resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not resolved_key:
             raise ConfigurationError(
@@ -47,6 +53,7 @@ class OpenAIAdapter(ModelAdapter):
                 "variable or pass api_key= to OpenAIAdapter()."
             )
         self._model = model
+        self._temperature = temperature
         self._client = AsyncOpenAI(api_key=resolved_key)
 
     @property
@@ -58,8 +65,8 @@ class OpenAIAdapter(ModelAdapter):
         self,
         prompt: str,
         system_prompt: str | None = None,
-    ) -> str:
-        """Call the OpenAI chat completions API and return the text response.
+    ) -> ModelResponse:
+        """Call the OpenAI chat completions API and return a structured response.
 
         Args:
             prompt: The user-turn message.
@@ -67,8 +74,8 @@ class OpenAIAdapter(ModelAdapter):
                 conversation.
 
         Returns:
-            The assistant's text reply, or an empty string if the API
-            returns ``None`` content.
+            A :class:`~llmeval.models.base.ModelResponse` with the assistant's
+            text reply and token-usage counters from the API response.
 
         Raises:
             ModelAdapterError: Wraps any :class:`openai.APIError`.
@@ -78,12 +85,20 @@ class OpenAIAdapter(ModelAdapter):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        kwargs: dict[str, object] = dict(model=self._model, messages=messages)
+        if self._temperature is not None:
+            kwargs["temperature"] = self._temperature
+
         try:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-            )
-            return response.choices[0].message.content or ""
+            response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            text = response.choices[0].message.content or ""
+            usage: dict[str, int] | None = None
+            if response.usage:
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                }
+            return ModelResponse(text=text, usage=usage)
         except OpenAIAPIError as exc:
             raise ModelAdapterError(
                 f"OpenAI API call failed for model {self._model!r}: {exc}"

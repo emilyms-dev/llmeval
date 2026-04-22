@@ -39,8 +39,10 @@ import logging
 import os
 import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import AsyncGenerator
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
@@ -106,6 +108,7 @@ class RunRequest(BaseModel):
     labels: dict[str, str] = {}
     concurrency: int = 5
     timeout: int = 1800
+    samples: int = 1
 
 
 class RunStarted(BaseModel):
@@ -167,10 +170,28 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
 
     suites_dir = Path(os.environ.get("LLMEVAL_SUITES_DIR", ".")).resolve()
 
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+        workers = int(os.environ.get("WEB_CONCURRENCY", "1"))
+        if workers > 1:
+            logger.warning(
+                "llmeval detected WEB_CONCURRENCY=%d. The in-process task "
+                "registry for run cancellation does not support multiple "
+                "workers — cancel operations will silently fail under any "
+                "worker that did not start the run. Use a single worker only.",
+                workers,
+            )
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+        _app.state.storage = storage
+        yield
+        await storage.close()
+
     app = FastAPI(
         title="llmeval",
         description="LLM evaluation framework dashboard API",
         version="0.1.0",
+        lifespan=_lifespan,
     )
 
     app.add_middleware(
@@ -180,9 +201,10 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
         allow_headers=["*"],
     )
 
-    async def _storage() -> SQLiteStorage:
-        async with SQLiteStorage(db_path) as storage:
-            yield storage  # type: ignore[misc]
+    def _get_storage(request: Request) -> SQLiteStorage:
+        """Return the shared :class:`SQLiteStorage` initialised at startup."""
+        storage: SQLiteStorage = request.app.state.storage
+        return storage
 
     async def require_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(_security),
@@ -224,7 +246,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
 
     @app.get("/api/runs", response_model=list[RunSummary])
     async def list_runs(
-        storage: SQLiteStorage = Depends(_storage),
+        storage: SQLiteStorage = Depends(_get_storage),
         suite: str | None = Query(None, description="Filter by suite name"),
         model: str | None = Query(None, description="Filter by model"),
         status_filter: str | None = Query(
@@ -291,7 +313,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
     @app.post("/api/runs", response_model=RunStarted, status_code=202)
     async def trigger_run(
         req: RunRequest,
-        storage: SQLiteStorage = Depends(_storage),
+        storage: SQLiteStorage = Depends(_get_storage),
         _auth: None = Depends(require_token),
         _rl: None = Depends(check_rate_limit),
     ) -> RunStarted:
@@ -381,6 +403,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
                 labels=req.labels,
                 concurrency=req.concurrency,
                 timeout=req.timeout,
+                samples=req.samples,
                 db_path=db_path,
             )
         )
@@ -395,7 +418,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
 
     @app.get("/api/runs/{run_id}/status", response_model=RunStatusOut)
     async def get_run_status(
-        run_id: str, storage: SQLiteStorage = Depends(_storage)
+        run_id: str, storage: SQLiteStorage = Depends(_get_storage)
     ) -> RunStatusOut:
         """Return the current status and result counts without the full result payload.
 
@@ -428,7 +451,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
     @app.post("/api/runs/{run_id}/cancel", response_model=RunStarted, status_code=202)
     async def cancel_run(
         run_id: str,
-        storage: SQLiteStorage = Depends(_storage),
+        storage: SQLiteStorage = Depends(_get_storage),
         _auth: None = Depends(require_token),
     ) -> RunStarted:
         """Cancel a pending or running job.
@@ -471,7 +494,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
 
     @app.get("/api/runs/{run_id}/previous", response_model=SuiteRun)
     async def get_previous_run(
-        run_id: str, storage: SQLiteStorage = Depends(_storage)
+        run_id: str, storage: SQLiteStorage = Depends(_get_storage)
     ) -> SuiteRun:
         """Return the most recent completed run of the same suite before *run_id*."""
         try:
@@ -491,7 +514,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
     async def export_run(
         run_id: str,
         format: str = Query("json", description="Export format: json or csv"),
-        storage: SQLiteStorage = Depends(_storage),
+        storage: SQLiteStorage = Depends(_get_storage),
     ) -> Response:
         """Download a run as JSON or CSV.
 
@@ -527,7 +550,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
 
     @app.get("/api/runs/{run_id}", response_model=SuiteRun)
     async def get_run(
-        run_id: str, storage: SQLiteStorage = Depends(_storage)
+        run_id: str, storage: SQLiteStorage = Depends(_get_storage)
     ) -> SuiteRun:
         """Return a single run including all test results."""
         try:
@@ -544,7 +567,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
     async def diff_runs(
         run_id_a: str,
         run_id_b: str,
-        storage: SQLiteStorage = Depends(_storage),
+        storage: SQLiteStorage = Depends(_get_storage),
     ) -> list[TestDiffOut]:
         """Return a per-test diff between two runs."""
         try:
@@ -659,6 +682,7 @@ async def _run_pipeline(
     concurrency: int,
     timeout: int,
     db_path: str,
+    samples: int = 1,
 ) -> None:
     """Execute the full run → score → save pipeline for a triggered run.
 
@@ -679,7 +703,7 @@ async def _run_pipeline(
     async def _do_pipeline() -> SuiteRun:
         suite_def = load_suite(suite_path)
         runner_adapter = create_adapter(model_name)
-        judge_adapter = create_adapter(suite_def.suite.judge_model)
+        judge_adapter = create_adapter(suite_def.suite.judge_model, temperature=0.0)
 
         async with SQLiteStorage(db_path) as storage:
             pending = await storage.get_run(run_id)
@@ -692,7 +716,7 @@ async def _run_pipeline(
             update={"run_id": run_id, "status": "running", "labels": labels}
         )
 
-        judge = Judge(judge_adapter, concurrency=concurrency)
+        judge = Judge(judge_adapter, concurrency=concurrency, samples=samples)
         suite_run = await judge.score_suite_run(suite_run, suite_def)
         return suite_run.model_copy(
             update={

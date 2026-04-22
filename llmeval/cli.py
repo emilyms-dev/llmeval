@@ -131,6 +131,24 @@ def run(
         "-l",
         help="CI metadata in key=value format (e.g. --label commit=abc123). Repeatable.",
     ),
+    samples: int = typer.Option(
+        1,
+        "--samples",
+        help=(
+            "Number of judge calls per test case. When > 1, per-criterion "
+            "scores are aggregated as the median and the standard deviation "
+            "is recorded."
+        ),
+    ),
+    temperature: float | None = typer.Option(
+        None,
+        "--temperature",
+        help=(
+            "Sampling temperature for the judge model. Omit to use the "
+            "provider default. Values > 0 introduce variance; use with "
+            "--samples > 1 to get reliable multi-sample estimates."
+        ),
+    ),
 ) -> None:
     """Run a test suite, score outputs with LLM-as-judge, and print results.
 
@@ -165,7 +183,10 @@ def run(
 
     try:
         runner_adapter = create_adapter(model_name)
-        judge_adapter = create_adapter(suite_def.suite.judge_model)
+        # Default to temperature=0.0 for the judge to keep scoring deterministic.
+        # Users can override with --temperature to introduce variance for --samples > 1.
+        judge_temp = temperature if temperature is not None else 0.0
+        judge_adapter = create_adapter(suite_def.suite.judge_model, temperature=judge_temp)
     except ConfigurationError as exc:
         _abort(str(exc), ExitCode.MODEL_ERROR)
         return
@@ -181,7 +202,7 @@ def run(
         with console.status(
             f"Scoring with judge [cyan]{suite_def.suite.judge_model}[/cyan]…"
         ):
-            judge = Judge(judge_adapter, concurrency=concurrency)
+            judge = Judge(judge_adapter, concurrency=concurrency, samples=samples)
             suite_run = await judge.score_suite_run(suite_run, suite_def)
 
         suite_run = suite_run.model_copy(update={"labels": labels})
@@ -287,6 +308,16 @@ def rerun(
             "and the stored suite_path no longer exists."
         ),
     ),
+    samples: int = typer.Option(
+        1,
+        "--samples",
+        help="Number of judge calls per test case for multi-sample scoring.",
+    ),
+    temperature: float | None = typer.Option(
+        None,
+        "--temperature",
+        help="Sampling temperature for the judge model.",
+    ),
 ) -> None:
     """Re-run a suite using the exact configuration of a previous run.
 
@@ -358,7 +389,8 @@ def rerun(
 
     try:
         runner_adapter = create_adapter(model_name)
-        judge_adapter = create_adapter(suite_def.suite.judge_model)
+        judge_temp = temperature if temperature is not None else 0.0
+        judge_adapter = create_adapter(suite_def.suite.judge_model, temperature=judge_temp)
     except ConfigurationError as exc:
         _abort(str(exc), ExitCode.MODEL_ERROR)
         return
@@ -374,7 +406,7 @@ def rerun(
         with console.status(
             f"Scoring with judge [cyan]{suite_def.suite.judge_model}[/cyan]…"
         ):
-            judge = Judge(judge_adapter, concurrency=actual_concurrency)
+            judge = Judge(judge_adapter, concurrency=actual_concurrency, samples=samples)
             suite_run = await judge.score_suite_run(suite_run, suite_def)
 
         suite_run = suite_run.model_copy(update={"labels": labels})

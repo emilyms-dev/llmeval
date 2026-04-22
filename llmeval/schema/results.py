@@ -30,14 +30,18 @@ class CriterionScore(BaseModel):
         name: Must match a :attr:`~llmeval.schema.test_suite.Criterion.name`
             in the corresponding :class:`~llmeval.schema.test_suite.Rubric`.
         score: Normalised score from ``0.0`` (completely fails the criterion)
-            to ``1.0`` (fully satisfies it).
+            to ``1.0`` (fully satisfies it). When ``samples > 1`` this is the
+            median across all samples.
         reasoning: One- or two-sentence rationale from the judge explaining
             why this score was assigned.
+        score_stddev: Standard deviation of scores across judge samples.
+            ``None`` when only a single sample was taken (``samples=1``).
     """
 
     name: str = Field(..., min_length=1)
     score: float = Field(..., ge=0.0, le=1.0)
     reasoning: str = Field(..., min_length=1)
+    score_stddev: float | None = Field(default=None, ge=0.0)
 
 
 class TestResult(BaseModel):
@@ -74,6 +78,7 @@ class TestResult(BaseModel):
     passed: bool = False
     passing_threshold: float | None = None
     error: str | None = None
+    judge_tokens: dict[str, int] | None = None
 
 
 class SuiteRun(BaseModel):

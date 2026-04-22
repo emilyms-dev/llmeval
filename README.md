@@ -62,7 +62,11 @@ llmeval run --suite suite.yaml --tag regression-critical
 llmeval run --suite suite.yaml --label commit=abc123 --label branch=main --label pr=42
 llmeval run --suite suite.yaml --no-save          # skip persisting to DB
 llmeval run --suite suite.yaml --concurrency 10
+llmeval run --suite suite.yaml --samples 3        # call judge 3×, report median score + stddev
+llmeval run --suite suite.yaml --samples 3 --temperature 0.7  # non-zero temp for variance
 ```
+
+`--samples` calls the judge model N times per test and reports the **median** score with a per-criterion standard deviation. Use `--temperature` (default `0.0`) to introduce sampling variance when `--samples > 1`.
 
 Exit codes: `0` all pass · `1` any failure or error · `2` config/IO error
 
@@ -142,6 +146,7 @@ Re-run a suite using the exact configuration of a previous run.
 llmeval rerun <run-id>
 llmeval rerun <run-id> --label commit=def456   # overlay new labels
 llmeval rerun <run-id> --concurrency 10
+llmeval rerun <run-id> --samples 3 --temperature 0.5
 ```
 
 ### `llmeval cancel`

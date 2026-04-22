@@ -288,7 +288,7 @@ class TestGetRun:
     async def test_get_wraps_db_error_in_storage_error(self) -> None:
         async with SQLiteStorage(":memory:") as storage:
             storage._conn.execute = MagicMock(side_effect=OSError("io error"))  # type: ignore[union-attr]
-            with pytest.raises(StorageError, match="Failed to fetch run"):
+            with pytest.raises(StorageError, match="io error"):
                 await storage.get_run("any-id")
 
     @pytest.mark.asyncio

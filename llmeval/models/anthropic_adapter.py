@@ -14,23 +14,23 @@ Anthropic's Messages API differs from OpenAI's in two notable ways:
 API key resolution order:
 
 1. ``api_key`` constructor argument.
-2. ``ANTHROPIC_API_KEY`` environment variable (loaded from ``.env``).
+2. ``ANTHROPIC_API_KEY`` environment variable (loaded from ``.env`` via the
+   global ``load_dotenv()`` call in :mod:`llmeval.cli`).
 
 Raises :class:`~llmeval.exceptions.ConfigurationError` at construction time
 if no key is available.
 """
+
+from __future__ import annotations
 
 import os
 
 from anthropic import APIError as AnthropicAPIError
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
-from dotenv import load_dotenv
 
 from llmeval.exceptions import ConfigurationError, ModelAdapterError
-from llmeval.models.base import ModelAdapter
-
-load_dotenv()
+from llmeval.models.base import ModelAdapter, ModelResponse
 
 # Anthropic requires an explicit max_tokens; 4096 is a reasonable default
 # that fits most evaluation responses without truncation.
@@ -47,6 +47,8 @@ class AnthropicAdapter(ModelAdapter):
             ``ANTHROPIC_API_KEY`` environment variable is used.
         max_tokens: Maximum tokens to generate per response. Defaults to
             ``4096``.
+        temperature: Sampling temperature passed to the API. ``None`` omits
+            the parameter so the model's server-side default applies.
 
     Raises:
         ConfigurationError: If no API key can be found.
@@ -57,6 +59,7 @@ class AnthropicAdapter(ModelAdapter):
         model: str,
         api_key: str | None = None,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        temperature: float | None = None,
     ) -> None:
         resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not resolved_key:
@@ -66,6 +69,7 @@ class AnthropicAdapter(ModelAdapter):
             )
         self._model = model
         self._max_tokens = max_tokens
+        self._temperature = temperature
         self._client = AsyncAnthropic(api_key=resolved_key)
 
     @property
@@ -77,8 +81,8 @@ class AnthropicAdapter(ModelAdapter):
         self,
         prompt: str,
         system_prompt: str | None = None,
-    ) -> str:
-        """Call the Anthropic Messages API and return the text response.
+    ) -> ModelResponse:
+        """Call the Anthropic Messages API and return a structured response.
 
         Concatenates all ``text``-type content blocks in the response. In
         practice Claude returns a single block, but the API allows multiple.
@@ -89,8 +93,8 @@ class AnthropicAdapter(ModelAdapter):
                 ``system`` parameter (not as a message role).
 
         Returns:
-            The assistant's text reply, or an empty string if no text blocks
-            are present in the response.
+            A :class:`~llmeval.models.base.ModelResponse` with the assistant's
+            text reply and token-usage counters from the API response.
 
         Raises:
             ModelAdapterError: Wraps any :class:`anthropic.APIError`.
@@ -98,18 +102,27 @@ class AnthropicAdapter(ModelAdapter):
         messages: list[MessageParam] = [{"role": "user", "content": prompt}]
 
         try:
-            kwargs = dict(
+            kwargs: dict[str, object] = dict(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 messages=messages,
             )
             if system_prompt:
                 kwargs["system"] = system_prompt
+            if self._temperature is not None:
+                kwargs["temperature"] = self._temperature
 
             response = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
-            return "".join(
+            text = "".join(
                 block.text for block in response.content if block.type == "text"
             )
+            usage: dict[str, int] | None = None
+            if response.usage:
+                usage = {
+                    "prompt_tokens": response.usage.input_tokens,
+                    "completion_tokens": response.usage.output_tokens,
+                }
+            return ModelResponse(text=text, usage=usage)
         except AnthropicAPIError as exc:
             raise ModelAdapterError(
                 f"Anthropic API call failed for model {self._model!r}: {exc}"

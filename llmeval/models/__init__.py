@@ -9,8 +9,10 @@ The :func:`create_adapter` factory infers the provider from the model name
 so callers don't need to import the concrete adapter classes directly.
 """
 
+from typing import Any
+
 from llmeval.models.anthropic_adapter import AnthropicAdapter
-from llmeval.models.base import ModelAdapter
+from llmeval.models.base import ModelAdapter, ModelResponse
 from llmeval.models.openai_adapter import OpenAIAdapter
 
 # Model name prefixes that identify each provider.  Keep in sync with the
@@ -22,7 +24,7 @@ _ANTHROPIC_PREFIXES = ("claude-",)
 def create_adapter(
     model: str,
     api_key: str | None = None,
-    **kwargs: object,
+    **kwargs: Any,  # noqa: ANN401
 ) -> ModelAdapter:
     """Instantiate the appropriate :class:`ModelAdapter` for *model*.
 
@@ -51,9 +53,9 @@ def create_adapter(
     from llmeval.exceptions import ConfigurationError
 
     if model.startswith(_OPENAI_PREFIXES):
-        return OpenAIAdapter(model=model, api_key=api_key, **kwargs)  # type: ignore[arg-type]
+        return OpenAIAdapter(model=model, api_key=api_key, **kwargs)
     if model.startswith(_ANTHROPIC_PREFIXES):
-        return AnthropicAdapter(model=model, api_key=api_key, **kwargs)  # type: ignore[arg-type]
+        return AnthropicAdapter(model=model, api_key=api_key, **kwargs)
     raise ConfigurationError(
         f"Cannot infer provider for model {model!r}. "
         "Use OpenAIAdapter() or AnthropicAdapter() directly, or open an "
@@ -63,6 +65,7 @@ def create_adapter(
 
 __all__ = [
     "ModelAdapter",
+    "ModelResponse",
     "OpenAIAdapter",
     "AnthropicAdapter",
     "create_adapter",
