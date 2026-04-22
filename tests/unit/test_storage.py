@@ -496,9 +496,7 @@ class TestGetLatestRun:
     async def test_no_completed_run_raises_storage_error(self) -> None:
         storage = await _storage()
         pending = _run()
-        pending = pending.model_copy(
-            update={"status": "pending", "completed_at": None}
-        )
+        pending = pending.model_copy(update={"status": "pending", "completed_at": None})
         await storage.save_run(pending)
         with pytest.raises(StorageError, match="No run found"):
             await storage.get_latest_run()
@@ -532,9 +530,7 @@ class TestListRunsFiltered:
         storage = await _storage()
         completed = _run()
         failed = _run()
-        failed = failed.model_copy(
-            update={"status": "failed", "completed_at": None}
-        )
+        failed = failed.model_copy(update={"status": "failed", "completed_at": None})
         await storage.save_run(completed)
         await storage.save_run(failed)
         results = await storage.list_runs(status="failed")
@@ -623,9 +619,7 @@ class TestGetPreviousRun:
         storage = await _storage()
         t0 = datetime(2024, 1, 1, tzinfo=UTC)
         pending = _run(started_at=t0)
-        pending = pending.model_copy(
-            update={"status": "pending", "completed_at": None}
-        )
+        pending = pending.model_copy(update={"status": "pending", "completed_at": None})
         completed = _run(started_at=t0 + timedelta(hours=1))
         completed = completed.model_copy(
             update={"completed_at": t0 + timedelta(hours=1, seconds=5)}
@@ -776,6 +770,7 @@ class TestGetRunBrief:
     async def test_not_found_raises_storage_error(self) -> None:
         storage = await _storage()
         from llmeval.storage.base import RunBrief  # noqa: F401
+
         with pytest.raises(StorageError, match="not found"):
             await storage.get_run_brief("no-such-id-xxxx")
 
@@ -792,9 +787,7 @@ class TestGetLatestRunStatusNone:
         t0 = datetime(2024, 1, 1, tzinfo=UTC)
         completed = _run(started_at=t0)
         running = _run(started_at=t0 + timedelta(hours=1))
-        running = running.model_copy(
-            update={"status": "running", "completed_at": None}
-        )
+        running = running.model_copy(update={"status": "running", "completed_at": None})
         await storage.save_run(completed)
         await storage.save_run(running)
         latest = await storage.get_latest_run(status=None)

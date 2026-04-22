@@ -211,11 +211,14 @@ class SQLiteStorage(StorageBackend):
         Raises:
             StorageError: If *run_id* matches zero or more than one run.
         """
-        async with storage_op(f"Failed to resolve run ID {run_id!r}"), self._db.execute(
-            "SELECT run_id FROM suite_runs WHERE run_id LIKE :prefix",
-            {"prefix": run_id + "%"},
-        ) as cursor:
-            rows = await cursor.fetchall()
+        async with (
+            storage_op(f"Failed to resolve run ID {run_id!r}"),
+            self._db.execute(
+                "SELECT run_id FROM suite_runs WHERE run_id LIKE :prefix",
+                {"prefix": run_id + "%"},
+            ) as cursor,
+        ):
+            rows = list(await cursor.fetchall())
         if not rows:
             raise StorageError(f"Run {run_id!r} not found.")
         if len(rows) > 1:
@@ -248,9 +251,7 @@ class SQLiteStorage(StorageBackend):
             if suite_run.completed_at is not None
             else None
         )
-        tags_text = (
-            "|" + "|".join(suite_run.tags) + "|" if suite_run.tags else "||"
-        )
+        tags_text = "|" + "|".join(suite_run.tags) + "|" if suite_run.tags else "||"
         run_json = suite_run.model_dump_json()
 
         async with storage_op(f"Failed to save run {suite_run.run_id!r}"):
@@ -305,10 +306,13 @@ class SQLiteStorage(StorageBackend):
                 deserialisation fails.
         """
         resolved = await self._resolve_run_id(run_id)
-        async with storage_op(f"Failed to fetch run {run_id!r}"), self._db.execute(
-            "SELECT run_json FROM suite_runs WHERE run_id = :run_id",
-            {"run_id": resolved},
-        ) as cursor:
+        async with (
+            storage_op(f"Failed to fetch run {run_id!r}"),
+            self._db.execute(
+                "SELECT run_json FROM suite_runs WHERE run_id = :run_id",
+                {"run_id": resolved},
+            ) as cursor,
+        ):
             row = await cursor.fetchone()
         if row is None:
             raise StorageError(f"Run {run_id!r} not found.")

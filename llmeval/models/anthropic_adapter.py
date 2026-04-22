@@ -102,17 +102,36 @@ class AnthropicAdapter(ModelAdapter):
         messages: list[MessageParam] = [{"role": "user", "content": prompt}]
 
         try:
-            kwargs: dict[str, object] = dict(
-                model=self._model,
-                max_tokens=self._max_tokens,
-                messages=messages,
-            )
-            if system_prompt:
-                kwargs["system"] = system_prompt
-            if self._temperature is not None:
-                kwargs["temperature"] = self._temperature
-
-            response = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
+            if self._temperature is None and system_prompt is None:
+                response = await self._client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    messages=messages,
+                )
+            elif self._temperature is None:
+                assert system_prompt is not None
+                response = await self._client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    messages=messages,
+                    system=system_prompt,
+                )
+            elif system_prompt is None:
+                response = await self._client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    messages=messages,
+                    temperature=self._temperature,
+                )
+            else:
+                assert system_prompt is not None
+                response = await self._client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    messages=messages,
+                    system=system_prompt,
+                    temperature=self._temperature,
+                )
             text = "".join(
                 block.text for block in response.content if block.type == "text"
             )

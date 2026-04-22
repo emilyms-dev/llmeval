@@ -111,7 +111,8 @@ class Judge:
         concurrency: Maximum simultaneous judge API calls. Defaults to 5.
         samples: Number of times to call the judge per test case. When > 1,
             per-criterion scores are aggregated as the median and the standard
-            deviation is stored in :attr:`~llmeval.schema.results.CriterionScore.score_stddev`.
+            deviation is stored in
+            :attr:`~llmeval.schema.results.CriterionScore.score_stddev`.
             Defaults to 1 (single-sample, deterministic mode).
 
     Raises:
@@ -287,7 +288,9 @@ class Judge:
             if attempt > 0:
                 await asyncio.sleep(_RETRY_DELAYS[attempt - 1])
             try:
-                return await self._adapter.complete(prompt, system_prompt=_SYSTEM_PROMPT)
+                return await self._adapter.complete(
+                    prompt, system_prompt=_SYSTEM_PROMPT
+                )
             except ModelAdapterError as exc:
                 last_exc = exc
                 logger.warning(

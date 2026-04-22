@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 import tempfile  # noqa: F401 (imported for clarity; used indirectly)
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -77,11 +77,11 @@ async def _client(app: object) -> AsyncGenerator[AsyncClient, None]:
     phase and closed on exit, mirroring production behaviour.
     """
     lifespan = app.router.lifespan_context  # type: ignore[union-attr]
-    async with lifespan(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            yield client
+    async with (
+        lifespan(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        yield client
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +347,7 @@ class TestListSuites:
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
+
 # ===========================================================================
 # GET /api/runs/{run_id}/status
 # ===========================================================================
@@ -586,9 +587,7 @@ class TestPathTraversal:
             patch("asyncio.create_task"),
         ):
             async with _client(app) as client:
-                resp = await client.post(
-                    "/api/runs", json={"suite_path": "suite.yaml"}
-                )
+                resp = await client.post("/api/runs", json={"suite_path": "suite.yaml"})
         assert resp.status_code == 202
 
 
@@ -637,6 +636,7 @@ class TestRateLimit:
     @pytest.mark.asyncio
     async def test_eleventh_request_returns_429(self, tmp_path: object) -> None:
         from unittest.mock import MagicMock, patch
+
         from llmeval.server import api as api_module
 
         db_file = os.path.join(str(tmp_path), "rl.db")
@@ -682,6 +682,7 @@ class TestRunRequestSamples:
     async def test_samples_forwarded_to_pipeline(self, tmp_path: object) -> None:
         """samples=3 in the request body must reach _run_pipeline."""
         from unittest.mock import MagicMock, patch
+
         from llmeval.server import api as api_module
 
         db_file = os.path.join(str(tmp_path), "samples.db")

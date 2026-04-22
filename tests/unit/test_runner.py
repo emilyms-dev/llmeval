@@ -183,7 +183,9 @@ class TestRunnerHappyPath:
     @pytest.mark.asyncio
     async def test_raw_output_stored_correctly(self) -> None:
         adapter = _make_adapter()
-        adapter.complete = AsyncMock(return_value=ModelResponse(text="The answer is 42."))
+        adapter.complete = AsyncMock(
+            return_value=ModelResponse(text="The answer is 42.")
+        )
         runner = Runner(adapter)
         suite_run = await runner.run(_make_suite([_make_test("t1")]))
         assert suite_run.results[0].raw_output == "The answer is 42."

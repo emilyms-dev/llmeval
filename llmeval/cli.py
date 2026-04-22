@@ -129,7 +129,10 @@ def run(
         [],
         "--label",
         "-l",
-        help="CI metadata in key=value format (e.g. --label commit=abc123). Repeatable.",
+        help=(
+            "CI metadata in key=value format "
+            "(e.g. --label commit=abc123). Repeatable."
+        ),
     ),
     samples: int = typer.Option(
         1,
@@ -186,7 +189,9 @@ def run(
         # Default to temperature=0.0 for the judge to keep scoring deterministic.
         # Users can override with --temperature to introduce variance for --samples > 1.
         judge_temp = temperature if temperature is not None else 0.0
-        judge_adapter = create_adapter(suite_def.suite.judge_model, temperature=judge_temp)
+        judge_adapter = create_adapter(
+            suite_def.suite.judge_model, temperature=judge_temp
+        )
     except ConfigurationError as exc:
         _abort(str(exc), ExitCode.MODEL_ERROR)
         return
@@ -390,7 +395,9 @@ def rerun(
     try:
         runner_adapter = create_adapter(model_name)
         judge_temp = temperature if temperature is not None else 0.0
-        judge_adapter = create_adapter(suite_def.suite.judge_model, temperature=judge_temp)
+        judge_adapter = create_adapter(
+            suite_def.suite.judge_model, temperature=judge_temp
+        )
     except ConfigurationError as exc:
         _abort(str(exc), ExitCode.MODEL_ERROR)
         return
@@ -406,7 +413,9 @@ def rerun(
         with console.status(
             f"Scoring with judge [cyan]{suite_def.suite.judge_model}[/cyan]…"
         ):
-            judge = Judge(judge_adapter, concurrency=actual_concurrency, samples=samples)
+            judge = Judge(
+                judge_adapter, concurrency=actual_concurrency, samples=samples
+            )
             suite_run = await judge.score_suite_run(suite_run, suite_def)
 
         suite_run = suite_run.model_copy(update={"labels": labels})
@@ -532,9 +541,7 @@ def list_runs(
         "--status",
         help="Filter by status: pending, running, completed, failed.",
     ),
-    tag: str | None = typer.Option(
-        None, "--tag", "-t", help="Filter by tag."
-    ),
+    tag: str | None = typer.Option(None, "--tag", "-t", help="Filter by tag."),
     tag_match: str = typer.Option(
         "exact",
         "--tag-match",
@@ -961,7 +968,10 @@ def prune(
         False,
         "--yes",
         "-y",
-        help="Actually delete. Without this flag, shows what would be deleted (dry run).",
+        help=(
+            "Actually delete. Without this flag, "
+            "shows what would be deleted (dry run)."
+        ),
     ),
     db: str | None = typer.Option(None, "--db", help="SQLite database path."),
 ) -> None:

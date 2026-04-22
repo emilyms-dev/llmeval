@@ -39,10 +39,10 @@ import logging
 import os
 import time
 from collections import defaultdict
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import AsyncGenerator
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
@@ -234,10 +234,8 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
         for pat in patterns:
             full_pattern = str(suites_dir / pat)
             for p in glob.glob(full_pattern, recursive=True):
-                try:
+                with suppress(ValueError):
                     found.append(str(Path(p).relative_to(suites_dir)))
-                except ValueError:
-                    pass
         return sorted(set(found))
 
     # -----------------------------------------------------------------------
@@ -504,9 +502,7 @@ def create_app(db_path: str = "llmeval.db") -> FastAPI:
             msg = str(exc)
             msg_lower = msg.lower()
             code = (
-                404
-                if "not found" in msg_lower or "no previous" in msg_lower
-                else 500
+                404 if "not found" in msg_lower or "no previous" in msg_lower else 500
             )
             raise HTTPException(status_code=code, detail=msg) from exc
 
@@ -770,7 +766,7 @@ async def _run_pipeline(
 
     try:
         suite_run = await asyncio.wait_for(_do_pipeline(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         suite_run = await _error_state(f"Run timed out after {timeout}s.")
     except asyncio.CancelledError:
         # DB was updated by the cancel endpoint; this is a best-effort safety net.

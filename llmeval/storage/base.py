@@ -13,6 +13,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Self
 
 from llmeval.schema.results import RunStatus, SuiteRun
 
@@ -136,6 +137,21 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
+    async def get_previous_run(self, suite_name: str, before_run_id: str) -> SuiteRun:
+        """Return the most recent completed run of *suite_name* before *before_run_id*.
+
+        Args:
+            suite_name: Exact suite name to match.
+            before_run_id: UUID or resolved run ID that acts as the upper bound.
+
+        Returns:
+            The previous completed :class:`~llmeval.schema.results.SuiteRun`.
+
+        Raises:
+            StorageError: If no matching run exists or the query fails.
+        """
+
+    @abstractmethod
     async def list_runs(
         self,
         *,
@@ -228,7 +244,7 @@ class StorageBackend(ABC):
     # Async context manager — delegates to initialize() / close()
     # ------------------------------------------------------------------
 
-    async def __aenter__(self) -> StorageBackend:
+    async def __aenter__(self) -> Self:
         """Call :meth:`initialize` and return ``self``."""
         await self.initialize()
         return self

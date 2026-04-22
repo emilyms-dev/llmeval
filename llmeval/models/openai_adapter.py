@@ -85,12 +85,18 @@ class OpenAIAdapter(ModelAdapter):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        kwargs: dict[str, object] = dict(model=self._model, messages=messages)
-        if self._temperature is not None:
-            kwargs["temperature"] = self._temperature
-
         try:
-            response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            if self._temperature is None:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                )
+            else:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    temperature=self._temperature,
+                )
             text = response.choices[0].message.content or ""
             usage: dict[str, int] | None = None
             if response.usage:
