@@ -10,6 +10,7 @@ jobs:
   test:
     name: Lint & Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     strategy:
       fail-fast: false
@@ -39,13 +40,17 @@ jobs:
             venv-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Install dependencies
+        timeout-minutes: 5
         run: poetry install --no-interaction
 
       - name: Lint (ruff)
+        timeout-minutes: 2
         run: poetry run ruff check llmeval/ tests/
 
       - name: Format check (black)
+        timeout-minutes: 2
         run: poetry run black --check llmeval/ tests/
 
       - name: Unit tests
-        run: poetry run pytest tests/unit/ -q
+        timeout-minutes: 5
+        run: poetry run pytest tests/unit/ -q -o faulthandler_timeout=60

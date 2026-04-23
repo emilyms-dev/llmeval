@@ -18,6 +18,7 @@ Coverage targets:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -74,7 +75,26 @@ async def _storage() -> SQLiteStorage:
     """Return an initialized in-memory SQLiteStorage."""
     s = SQLiteStorage(":memory:")
     await s.initialize()
+    _OPEN_STORAGES.append(s)
     return s
+
+
+_OPEN_STORAGES: list[SQLiteStorage] = []
+
+
+@pytest.fixture(autouse=True)
+async def _close_helper_storages() -> AsyncGenerator[None, None]:
+    """Close SQLite connections opened by the legacy ``_storage`` helper.
+
+    ``aiosqlite`` keeps a worker thread per open connection. Tests that forgot
+    to close helper-created connections could pass but keep pytest alive during
+    process shutdown, which looked like a CI hang after the test summary.
+    """
+    try:
+        yield
+    finally:
+        while _OPEN_STORAGES:
+            await _OPEN_STORAGES.pop().close()
 
 
 # ===========================================================================

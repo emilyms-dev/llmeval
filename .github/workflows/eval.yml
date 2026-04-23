@@ -33,6 +33,7 @@ jobs:
   eval:
     name: Run Eval Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     # On PRs: only run if the repo variable RUN_EVAL is set to "true".
     # On manual dispatch: always run.
@@ -61,6 +62,7 @@ jobs:
           key: venv-${{ runner.os }}-3.11-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
+        timeout-minutes: 5
         run: poetry install --no-interaction
 
       - name: Resolve suite path
@@ -86,6 +88,7 @@ jobs:
           fi
 
       - name: Run eval suite
+        timeout-minutes: 10
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

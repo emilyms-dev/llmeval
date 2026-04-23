@@ -7,6 +7,7 @@ seeded with fixture data.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile  # noqa: F401 (imported for clarity; used indirectly)
 from collections.abc import AsyncGenerator
@@ -67,6 +68,21 @@ async def _seed(db_path: str, *runs: SuiteRun) -> None:
     async with SQLiteStorage(db_path) as storage:
         for run in runs:
             await storage.save_run(run)
+
+
+def _completed_task(coro: object) -> asyncio.Future[None]:
+    """Return an already-finished Future for patched ``asyncio.create_task``.
+
+    The API constructs the coroutine before passing it to ``create_task``. Tests
+    that only need to assert request behaviour should close that coroutine so no
+    background pipeline is left dangling on slower CI runners.
+    """
+    close = getattr(coro, "close", None)
+    if callable(close):
+        close()
+    future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    future.set_result(None)
+    return future
 
 
 @asynccontextmanager
@@ -523,7 +539,7 @@ class TestAuthToken:
         with (
             patch("llmeval.schema.test_suite.load_suite", return_value=suite_mock),
             patch("llmeval.models.create_adapter"),
-            patch("asyncio.create_task"),
+            patch("asyncio.create_task", side_effect=_completed_task),
         ):
             async with _client(secured_app) as client:
                 resp = await client.post(
@@ -584,7 +600,7 @@ class TestPathTraversal:
         with (
             patch("llmeval.schema.test_suite.load_suite", return_value=suite_mock),
             patch("llmeval.models.create_adapter"),
-            patch("asyncio.create_task"),
+            patch("asyncio.create_task", side_effect=_completed_task),
         ):
             async with _client(app) as client:
                 resp = await client.post("/api/runs", json={"suite_path": "suite.yaml"})
@@ -654,7 +670,7 @@ class TestRateLimit:
         with (
             patch("llmeval.schema.test_suite.load_suite", return_value=suite_mock),
             patch("llmeval.models.create_adapter"),
-            patch("asyncio.create_task"),
+            patch("asyncio.create_task", side_effect=_completed_task),
         ):
             async with _client(app) as client:
                 for _ in range(10):
