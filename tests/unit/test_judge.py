@@ -501,7 +501,9 @@ class TestJudgeScoreErrors:
         adapter = _make_adapter()
         adapter.complete = AsyncMock(side_effect=ModelAdapterError("API down"))
         judge = Judge(adapter)
-        scored = await judge.score(_result(), _rubric())
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr("llmeval.judge.asyncio.sleep", AsyncMock())
+            scored = await judge.score(_result(), _rubric())
         assert scored.error is not None
 
     @pytest.mark.asyncio
