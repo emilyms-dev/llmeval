@@ -9,7 +9,7 @@ Define test suites in YAML, run them against any OpenAI or Anthropic model, scor
 ## Quickstart
 
 ```bash
-pip install llmeval  # coming soon to PyPI
+pip install .
 
 export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
